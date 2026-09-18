@@ -13,7 +13,7 @@ export type Message = {
 };
 export type TurnOutcome = "completed" | "incomplete";
 export type Page<T> = { data: T[]; has_more: boolean };
-export type Account = { accountId: string; apiBase: string; lineUid: string; homeChatUid: string; ownerMemberUid: string; emailLineUid?: string };
+export type Account = { accountId: string; apiBase: string; lineUid: string; homeChatUid: string; emailLineUid?: string };
 
 export class HttpError extends Error {
   status: number;

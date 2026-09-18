@@ -9,7 +9,20 @@ import { TurnAuthorization } from "./authorization.ts";
 
 let runtime: PluginRuntime;
 const authorization = new TurnAuthorization();
-const activeTurn = new AsyncLocalStorage<{ account: Account; chat: Chat; deliveryUnknown?: boolean; replyDelivered?: boolean }>();
+const activeTurn = new AsyncLocalStorage<{ account: Account; chat: Chat; messageUid: string; deliveryUnknown?: boolean; replyDelivered?: boolean }>();
+
+async function requestWithDeliveryState<T>(account: Account, path: string, body: unknown): Promise<T> {
+  const turn = activeTurn.getStore();
+  if (turn?.deliveryUnknown) throw new DeliveryUnknownError();
+  try { return await request<T>(account, path, body); }
+  catch (error) {
+    if (!(error instanceof HttpError) || [408, 424].includes(error.status) || error.status >= 500) {
+      if (turn) turn.deliveryUnknown = true;
+      throw new DeliveryUnknownError();
+    }
+    throw error;
+  }
+}
 
 async function send(account: Account, to: string, text: string, mediaUrls: string[] = [], ownerSend = false) {
   const turn = activeTurn.getStore();
@@ -29,17 +42,9 @@ async function send(account: Account, to: string, text: string, mediaUrls: strin
     if (!response.ok) throw new Error(`Attachment upload HTTP ${response.status}`);
     attachments.push(upload.uid);
   }
-  try {
-    const sent = await request<{ uid: string }>(account, `/chats/${to}/messages`, { body: text, attachment_uids: attachments });
-    if (turn?.chat.uid === to) turn.replyDelivered = true;
-    return { channel: "plow" as const, messageId: sent.uid };
-  } catch (error) {
-    if (!(error instanceof HttpError) || [408, 424].includes(error.status) || error.status >= 500) {
-      if (turn) turn.deliveryUnknown = true;
-      throw new DeliveryUnknownError();
-    }
-    throw error;
-  }
+  const sent = await requestWithDeliveryState<{ uid: string }>(account, `/chats/${to}/messages`, { body: text, attachment_uids: attachments });
+  if (turn?.chat.uid === to) turn.replyDelivered = true;
+  return { channel: "plow" as const, messageId: sent.uid };
 }
 
 async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, message: Message, firstContact: boolean, log: (text: string) => void): Promise<TurnOutcome> {
@@ -59,7 +64,11 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
     }
   }
   const body = message.body || (account.accountId === "email" ? "[Email attachments are not supported.]" : "[Attachment]");
-  const roster = JSON.stringify({ first_contact: firstContact, trusted: chat.trusted, participants: chat.participants });
+  const participants = chat.participants.map(p => ({
+    name: (p.type === "member" ? p.display_name : p.line.display_name) || "unnamed member",
+    type: p.type, role: p.type === "member" ? p.role : p.relationship,
+  }));
+  const roster = JSON.stringify({ first_contact: firstContact, trusted: chat.trusted, participants });
   const ctxPayload = await runtime.channel.inbound.buildContext({
     channel: "plow", accountId: account.accountId, messageId: message.uid, timestamp: Date.parse(message.created_at),
     from: senderId, sender: { id: senderId, name: senderName, isBot: sender.type === "agent" },
@@ -70,7 +79,7 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
     media,
   });
   log(`turn ${JSON.stringify({ chat: chat.uid, message: message.uid, first_contact: firstContact, senderId, senderName, senderIsOwner: chat.participants.some(p => p.type === "member" && p.uid === senderId && p.role === "owner"), sessionKey: route.sessionKey })}`);
-  return await authorization.run(chat, senderId, () => activeTurn.run({ account, chat }, async () => {
+  return await authorization.run(chat, senderId, () => activeTurn.run({ account, chat, messageUid: message.uid }, async () => {
     let failure: unknown;
     let completed = false;
     let recoveryDuplicate = false;
@@ -158,22 +167,13 @@ export default defineChannelPluginEntry({
         const owner = home.participants.find(p => p.type === "member" && p.role === "owner");
         if (owner?.type !== "member" || !owner.provider_key) throw new Error("Home chat has no owner handle");
         const turn = activeTurn.getStore();
-        if (turn?.deliveryUnknown) throw new DeliveryUnknownError();
+        if (!turn) throw new Error("Starting a thread requires an active message");
         const members = [...new Set([owner.provider_key, ...args.members])].sort();
-        const idempotencyKey = createHash("sha256").update(JSON.stringify([account.lineUid, members, args.body])).digest("hex");
-        let chat: { uid: string };
-        try {
-          chat = await request(account, "/chats", {
-            line_uid: account.lineUid, members,
-            body: args.body, trusted: false, idempotency_key: idempotencyKey,
-          });
-        } catch (error) {
-          if (!(error instanceof HttpError) || [408, 424].includes(error.status) || error.status >= 500) {
-            if (turn) turn.deliveryUnknown = true;
-            throw new DeliveryUnknownError();
-          }
-          throw error;
-        }
+        const idempotencyKey = createHash("sha256").update(JSON.stringify([account.lineUid, turn.messageUid])).digest("hex");
+        const chat = await requestWithDeliveryState<{ uid: string }>(account, "/chats", {
+          line_uid: account.lineUid, members,
+          body: args.body, trusted: false, idempotency_key: idempotencyKey,
+        });
         api.logger.info(`plow started thread chat=${chat.uid}`);
         const result = { chat_uid: chat.uid, message_sent: true };
         return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };

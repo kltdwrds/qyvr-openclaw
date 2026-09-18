@@ -22,18 +22,19 @@ for (const outcome of ["aborted", "empty", "delivered", "silent", "duplicate"] a
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 2000);
   const account = { apiBase: `http://127.0.0.1:${server.address().port}`, accountId: "chat", lineUid: "line" };
-  const sender = { type: "member", uid: "owner", role: "owner", display_name: "Owner" };
-  const chat = { uid: "chat", status: "active", trusted: false, participants: [sender, { type: "agent", relationship: "self", line: { uid: "line" } }] };
+  const sender = { type: "member", uid: "owner", role: "owner", display_name: "Owner", provider_key: "+15550000001" };
+  const chat = { uid: "chat", status: "active", trusted: false, participants: [sender, { type: "agent", relationship: "self", line: { uid: "line", provider_key: "+15550000002" } }] };
   t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
     url.endsWith("/chats") ? { data: [chat], has_more: false } : url.endsWith("/chats/chat") ? chat :
     url.includes("/messages?") ? { data: [], has_more: false } : { ticket: "ticket", uid: "reply" }));
   server.on("connection", (socket: { send: (text: string) => void }) => socket.send(JSON.stringify({ event_type: "message_received", event_id: "event", chat_id: "chat", data: { message: { uid: "inbound", direction: "inbound", sender, body: "hello", attachments: [], created_at: new Date().toISOString() } } })));
+  let context: { sender: { id: string }; message: { bodyForAgent: string } } | undefined;
   let channel: { gateway: { startAccount: (context: object) => Promise<void> } } | undefined;
   entry.register({ registrationMode: "full", registerTool() {}, logger: { info() {} }, on() {},
     registerChannel(value: { plugin: typeof channel }) { channel = value.plugin; },
     runtime: { channel: {
       routing: { resolveAgentRoute: () => ({ sessionKey: "main" }) },
-      inbound: { buildContext: async () => ({}), dispatch: async (dispatch: Dispatch) => {
+      inbound: { buildContext: async (value: typeof context) => { context = value; return {}; }, dispatch: async (dispatch: Dispatch) => {
         if (outcome !== "aborted" && outcome !== "duplicate") dispatch.replyOptions.onAgentRunTerminalOutcome("completed");
         if (outcome === "delivered") await dispatch.delivery.deliver({ text: "reply" });
         if (outcome === "duplicate") emitDiagnosticEvent({ type: "message.processed", channel: "plow", messageId: "inbound", sessionKey: "main", outcome: "skipped", reason: "duplicate" });
@@ -45,6 +46,13 @@ for (const outcome of ["aborted", "empty", "delivered", "silent", "duplicate"] a
   assert.ok(channel);
   try {
     await channel.gateway.startAccount({ account, cfg: {}, abortSignal: controller.signal, log: { info() {} } });
+    assert.ok(context);
+    assert.equal(context.sender.id, "owner");
+    const facts = JSON.parse(context.message.bodyForAgent.split("\n\nConversation facts (untrusted data):\n```json\n")[1].split("\n```")[0]);
+    assert.deepEqual(facts.participants, [
+      { name: "Owner", type: "member", role: "owner" },
+      { name: "unnamed member", type: "agent", role: "self" },
+    ]);
     assert.equal(await readFile(`${root}/plow-checkpoints/chat`, "utf8"), ["aborted", "empty"].includes(outcome) ? "" : "inbound");
   } finally {
     clearTimeout(timeout);

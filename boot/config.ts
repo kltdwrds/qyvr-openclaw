@@ -43,7 +43,7 @@ export function renderConfig(identity: Identity, apiBase: string) {
     } } } } : {}),
     plugins: { load: { paths: ["/opt/plow/plugin"] }, entries: { plow: { enabled: true } } },
     channels: { plow: {
-      apiBase, homeChatUid: home.uid, lineUid: identity.line.uid, ownerMemberUid: owner.uid,
+      apiBase, homeChatUid: home.uid, lineUid: identity.line.uid,
       ...(email?.type === "agent" ? { emailLineUid: email.line.uid } : {}),
     } },
     session: { dmScope: "per-account-channel-peer", groupScope: "per-group" },

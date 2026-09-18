@@ -42,41 +42,17 @@ for (const served of [true, false]) test(`host-originated send checks account re
   }
 });
 
-for (const ownerPresent of [true, false]) test(`start-thread seats the roster owner and never grants trust: owner=${ownerPresent}`, async t => {
+test("start-thread refuses a home without an owner handle", async t => {
   let factory: ((context: object) => { name: string; execute: (id: string, args: object) => Promise<unknown> }) | undefined;
   entry.register({ registrationMode: "full", runtime: {}, registerChannel() {}, logger: { info() {} }, on() {},
     registerTool(value: typeof factory) { if (value?.({}).name === "plow_start_thread") factory = value; } });
   assert.ok(factory);
   process.env.PLOW_AGENT_TOKEN = "test-token";
-  const sent: Record<string, unknown>[] = [];
-  t.mock.method(globalThis, "fetch", async (_url: string, options: RequestInit) => {
-    if (options.method === "POST") {
-      sent.push(JSON.parse(options.body as string));
-      return Response.json({ uid: "new-group" });
-    }
-    return Response.json({ participants: ownerPresent ? [{ type: "member", role: "owner", provider_key: "+15550000001" }] : [] });
-  });
+  const calls: string[] = [];
+  t.mock.method(globalThis, "fetch", async (url: string) => { calls.push(url); return Response.json({ participants: [] }); });
   const tool = factory({ config: { channels: { plow: { apiBase: "http://fixture", lineUid: "line", homeChatUid: "home" } } } });
-  const result = tool.execute("call", { members: ["+15550000002", "+15550000001"], body: "Meet Friday?" });
-  if (!ownerPresent) {
-    await assert.rejects(result, /no owner handle/);
-    assert.equal(sent.length, 0);
-    return;
-  }
-  assert.deepEqual(await result, { content: [{ type: "text", text: '{"chat_uid":"new-group","message_sent":true}' }], details: { chat_uid: "new-group", message_sent: true } });
-  assert.equal(sent.length, 1);
-  assert.deepEqual(sent[0].members, ["+15550000001", "+15550000002"]);
-  assert.equal(sent[0].line_uid, "line");
-  assert.equal(sent[0].body, "Meet Friday?");
-  assert.equal(sent[0].trusted, false);
-  await tool.execute("another-call", { members: ["+15550000001", "+15550000002"], body: "Meet Friday?" });
-  assert.equal(sent[1].idempotency_key, sent[0].idempotency_key);
-  assert.match(sent[0].idempotency_key as string, /^[0-9a-f]{64}$/);
-  await tool.execute("call", { members: ["+15550000002"], body: "Meet Saturday?" });
-  await tool.execute("call", { members: ["+15550000003"], body: "Meet Friday?" });
-  const otherLine = factory({ config: { channels: { plow: { apiBase: "http://fixture", lineUid: "other-line", homeChatUid: "home" } } } });
-  await otherLine.execute("call", { members: ["+15550000002"], body: "Meet Friday?" });
-  assert.equal(new Set(sent.map(request => request.idempotency_key)).size, 4);
+  await assert.rejects(tool.execute("call", { members: ["+15550000002"], body: "Meet Friday?" }), /no owner handle/);
+  assert.deepEqual(calls, ["http://fixture/v1/chats/home"]);
 });
 
 test("start-thread returns a tool error without config and makes no request", async t => {

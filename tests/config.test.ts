@@ -13,6 +13,7 @@ const identity: Identity = {
 test("only the owner's phone DM becomes main; other peers and groups stay isolated", () => {
   const config = renderConfig(identity, "http://api:8000");
   assert.equal(config.channels.plow.homeChatUid, "cht_home");
+  assert.ok(!("ownerMemberUid" in config.channels.plow));
   assert.deepEqual(config.commands.ownerAllowFrom, ["mem_owner"]);
   assert.equal(config.session.dmScope, "per-account-channel-peer");
   assert.equal(config.session.groupScope, "per-group");
