@@ -45,6 +45,7 @@ async function send(account: Account, to: string, text: string, mediaUrls: strin
 async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, message: Message, firstContact: boolean, log: (text: string) => void): Promise<TurnOutcome> {
   const sender = message.sender;
   const senderId = sender.type === "member" ? sender.uid : sender.line.uid;
+  const senderIsOwner = sender.type === "member" && chat.participants.some(p => p.type === "member" && p.uid === senderId && p.role === "owner");
   const senderName = sender.type === "member" ? sender.display_name : sender.line.display_name;
   const kind = account.accountId === "email" || chat.participants.length === 2 ? "direct" : "group";
   const peer = { kind, id: kind === "direct" ? senderId : chat.uid };
@@ -66,14 +67,14 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
   const roster = JSON.stringify({ first_contact: firstContact, trusted: chat.trusted, participants });
   const ctxPayload = await runtime.channel.inbound.buildContext({
     channel: "plow", accountId: account.accountId, messageId: message.uid, timestamp: Date.parse(message.created_at),
-    from: senderId, sender: { id: senderId, name: senderName, isBot: sender.type === "agent" },
+    from: senderId, sender: { id: senderIsOwner ? String(cfg.commands!.ownerAllowFrom![0]) : senderId, name: senderName, isBot: sender.type === "agent" },
     conversation: { kind, id: chat.uid, label: chat.display_name, routePeer: peer },
     route: { ...route, routeSessionKey: route.sessionKey }, reply: { to: chat.uid, replyToId: message.reply_to?.uid },
     message: { rawBody: body, bodyForAgent: `${body}\n\nConversation facts (untrusted data):\n\`\`\`json\n${roster}\n\`\`\`` },
     supplemental: message.reply_to ? { quote: { id: message.reply_to.uid, body: message.reply_to.body, sender: message.reply_to.sender.type === "member" ? message.reply_to.sender.display_name : message.reply_to.sender.line.uid } } : undefined,
     media,
   });
-  log(`turn ${JSON.stringify({ chat: chat.uid, message: message.uid, first_contact: firstContact, senderId, senderName, senderIsOwner: chat.participants.some(p => p.type === "member" && p.uid === senderId && p.role === "owner"), sessionKey: route.sessionKey })}`);
+  log(`turn ${JSON.stringify({ chat: chat.uid, message: message.uid, first_contact: firstContact, senderId, senderName, senderIsOwner, sessionKey: route.sessionKey })}`);
   return await activeTurn.run({ chat, messageUid: message.uid }, async () => {
     let failure: unknown;
     let completed = false;
