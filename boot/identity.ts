@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import { homeChat, type Identity } from "./config.ts";
+import { findOwnerChat, type Identity } from "./config.ts";
 
 export async function identityFromApi(base: string, token: string, waiting = false): Promise<Identity | undefined> {
   const authDeadline = Date.now() + 120_000;
@@ -18,7 +18,7 @@ export async function identityFromApi(base: string, token: string, waiting = fal
     }
     if (response.ok) {
       const identity = await response.json() as Identity;
-      homeChat(identity);
+      findOwnerChat(identity);
       return identity;
     }
     if ([401, 403].includes(response.status) && Date.now() < authDeadline) {

@@ -4,7 +4,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { test } from "node:test";
 import { identityFromApi } from "../boot/identity.ts";
 
-for (const status of [0, 429, 503]) test(`home wait tolerates repeated transient identity failures: ${status}`, async t => {
+for (const status of [0, 429, 503]) test(`owner-chat wait tolerates repeated transient identity failures: ${status}`, async t => {
   let calls = 0;
   const identity = { line: { uid: "line" }, chats: [] };
   t.mock.method(globalThis, "fetch", async () => {

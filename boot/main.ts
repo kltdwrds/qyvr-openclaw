@@ -1,9 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
-import { renderConfig, homeChat } from "./config.js";
+import { renderConfig, findOwnerChat } from "./config.js";
 import { identityFromApi } from "./identity.js";
-import { renderSoul } from "./prompt.js";
+import { renderPrompt } from "./prompt.js";
 import { startGateway } from "./process.js";
 
 try {
@@ -14,10 +14,10 @@ try {
   let identity = (await identityFromApi(base, process.env.PLOW_AGENT_TOKEN))!;
   let waited = false;
   let nextLog = 0;
-  while (!homeChat(identity)) {
+  while (!findOwnerChat(identity)) {
     waited = true;
     if (Date.now() >= nextLog) {
-      console.log("plow-boot: waiting for the owner's first text to create the home chat");
+      console.log("plow-boot: waiting for the first text in the owner's chat");
       nextLog = Date.now() + 3_600_000;
     }
     await sleep(5_000);
@@ -26,14 +26,14 @@ try {
   const config = renderConfig(identity, base);
   if (waited) {
     await mkdir("/var/lib/plow/plow-checkpoints", { recursive: true });
-    await writeFile(`/var/lib/plow/plow-checkpoints/${config.channels.plow.homeChatUid}`, "", { flag: "wx" })
+    await writeFile(`/var/lib/plow/plow-checkpoints/${config.channels.plow.ownerChatUid}`, "", { flag: "wx" })
       .catch(error => { if (error.code !== "EEXIST") throw error; });
   }
   await mkdir("/var/lib/plow/workspace", { recursive: true });
-  const seed = await readFile("/opt/plow/seed/SOUL.md", "utf8");
-  await writeFile("/var/lib/plow/workspace/SOUL.md", await renderSoul(seed, identity.mcp_url, process.env.PLOW_AGENT_TOKEN));
+  const prompt = await readFile("/opt/plow/prompt/instructions.md", "utf8");
+  await writeFile("/var/lib/plow/workspace/SOUL.md", await renderPrompt(prompt, identity.mcp_url, process.env.PLOW_AGENT_TOKEN));
   await writeFile("/var/lib/plow/openclaw.json", JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
-  console.log(`plow-boot: identity resolved to ${config.channels.plow.homeChatUid}`);
+  console.log(`plow-boot: identity resolved to ${config.channels.plow.ownerChatUid}`);
   startGateway();
 } catch (error) {
   console.error(`plow-boot: parked: ${error instanceof Error ? error.message : String(error)}`);

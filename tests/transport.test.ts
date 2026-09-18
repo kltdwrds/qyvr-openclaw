@@ -56,7 +56,7 @@ test("a frame arriving while a synthesized checkpoint is written is recovered", 
   syncBuiltinESMExports();
   t.after(() => { writer.mock.restore(); syncBuiltinESMExports(); });
   const received: string[] = [];
-  await listen({ ...account, apiBase, lineUid: "line", homeChatUid: "home" }, controller.signal, () => {}, async (_chat, message) => {
+  await listen({ ...account, apiBase, lineUid: "line", ownerChatUid: "home" }, controller.signal, () => {}, async (_chat, message) => {
     received.push(message.uid);
     controller.abort();
     return "completed";
@@ -121,7 +121,7 @@ for (const scenario of ["waited", "pending", "buffered", "answered", "peer", "gr
     await mkdir(`${root}/plow-checkpoints`);
     await writeFile(`${root}/plow-checkpoints/home`, "");
   }
-  const fixture = { ...account, apiBase, lineUid: "line", homeChatUid: scenario === "group" ? "other" : "home" };
+  const fixture = { ...account, apiBase, lineUid: "line", ownerChatUid: scenario === "group" ? "other" : "home" };
   const sender = { type: "member", uid: "owner", role: "owner", display_name: "Owner" };
   const chat = { uid: "home", status: "active", participants: [sender, { type: "agent", relationship: "self", line: { uid: "line" } }] };
   const first = { uid: "first", body: "What is 17 + 25?", direction: scenario === "answered" ? "outbound" : "inbound",
@@ -240,7 +240,7 @@ for (const count of [1, 2]) for (const arrival of ["listing", "baseline"] as con
         ? { data: url.includes("limit=1") ? messages.slice(-1) : [...messages].reverse(), has_more: false } : { ticket: "ticket" });
   });
   const received: string[] = [];
-  await listen({ ...account, apiBase, lineUid: "line", homeChatUid: "home" }, controller.signal, () => {}, async (_chat, message) => {
+  await listen({ ...account, apiBase, lineUid: "line", ownerChatUid: "home" }, controller.signal, () => {}, async (_chat, message) => {
     received.push(message.uid);
     if (received.length === count) controller.abort();
     return "completed";

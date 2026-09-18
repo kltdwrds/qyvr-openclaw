@@ -7,22 +7,22 @@ export type Identity = {
   mcp_url?: string | null;
 };
 
-export function homeChat(identity: Identity) {
+export function findOwnerChat(identity: Identity) {
   if (!identity.line.uid) throw new Error("Identity is missing line uid");
-  const homes = identity.chats.filter(chat => chat.status === "active" &&
+  const ownerChats = identity.chats.filter(chat => chat.status === "active" &&
     chat.participants.length === 2 &&
     chat.participants.some(p => p.type === "agent" && p.relationship === "self" && p.line.uid === identity.line.uid) &&
     chat.participants.some(p => p.type === "member" && p.role === "owner"));
-  if (homes.length > 1) throw new Error(`Expected one owner home chat; found ${homes.length}`);
-  return homes[0];
+  if (ownerChats.length > 1) throw new Error(`Expected one owner's chat; found ${ownerChats.length}`);
+  return ownerChats[0];
 }
 
 export function renderConfig(identity: Identity, apiBase: string) {
-  const home = homeChat(identity);
-  if (!home) throw new Error("Expected one owner home chat; found 0");
-  const owner = home.participants.find(p => p.type === "member" && p.role === "owner");
-  if (owner?.type !== "member" || !owner.uid || !home.uid || !identity.line.uid) {
-    throw new Error("Identity is missing home chat, line or owner uid");
+  const ownerChat = findOwnerChat(identity);
+  if (!ownerChat) throw new Error("Expected one owner's chat; found 0");
+  const owner = ownerChat.participants.find(p => p.type === "member" && p.role === "owner");
+  if (owner?.type !== "member" || !owner.uid || !ownerChat.uid || !identity.line.uid) {
+    throw new Error("Identity is missing the owner's chat, line or owner uid");
   }
   const email = identity.chats.flatMap(chat => chat.participants).find(p =>
     p.type === "agent" && p.relationship === "self" && p.line.provider_type === "email");
@@ -43,7 +43,7 @@ export function renderConfig(identity: Identity, apiBase: string) {
     } } } } : {}),
     plugins: { load: { paths: ["/opt/plow/plugin"] }, entries: { plow: { enabled: true } } },
     channels: { plow: {
-      apiBase, homeChatUid: home.uid, lineUid: identity.line.uid,
+      apiBase, ownerChatUid: ownerChat.uid, lineUid: identity.line.uid,
       ...(email?.type === "agent" ? { emailLineUid: email.line.uid } : {}),
     } },
     session: { dmScope: "per-account-channel-peer", groupScope: "per-group" },

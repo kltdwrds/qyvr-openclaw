@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { test } from "node:test";
-import { renderSoul } from "../boot/prompt.ts";
+import { renderPrompt } from "../boot/prompt.ts";
 
-const seed = "# Plow assistant\n";
+const prompt = "# Plow assistant\n";
 
-test("no Mac leaves the seed unchanged", async () => {
-  assert.equal(await renderSoul(seed, null, "test-token"), seed);
+test("no Mac leaves the prompt unchanged", async () => {
+  assert.equal(await renderPrompt(prompt, null, "test-token"), prompt);
 });
 
 for (const format of ["json", "sse", "oversized", "missing", "invalid", "unavailable", "redirect"]) {
@@ -36,12 +36,12 @@ for (const format of ["json", "sse", "oversized", "missing", "invalid", "unavail
     try {
       const address = server.address();
       assert.ok(address && typeof address !== "string");
-      const soul = await renderSoul(seed, `http://127.0.0.1:${address.port}`, "test-token");
+      const rendered = await renderPrompt(prompt, `http://127.0.0.1:${address.port}`, "test-token");
       const expectedInstructions = format === "oversized" ? "A".repeat(8_000)
         : "Use plow_list_skills to discover the owner's Mac skills.";
-      assert.equal(soul, ["json", "sse", "oversized"].includes(format)
-        ? `${seed}\nInstructions from your owner's Mac through Latch (up to 8,000 characters):\n\n\`\`\`text\n${expectedInstructions}\n\`\`\`\n`
-        : seed);
+      assert.equal(rendered, ["json", "sse", "oversized"].includes(format)
+        ? `${prompt}\nInstructions from your owner's Mac through Latch (up to 8,000 characters):\n\n\`\`\`text\n${expectedInstructions}\n\`\`\`\n`
+        : prompt);
       assert.equal(requests, 1);
     } finally {
       await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

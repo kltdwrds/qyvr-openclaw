@@ -37,7 +37,7 @@ for (const served of [true, false]) test(`detached send checks account reach: se
   }
 });
 
-test("start-thread refuses a home without an owner handle", async t => {
+test("start-thread refuses an owner's chat without an owner handle", async t => {
   let factory: ((context: object) => { name: string; execute: (id: string, args: object) => Promise<unknown> }) | undefined;
   entry.register({ registrationMode: "full", runtime: {}, registerChannel() {}, logger: { info() {} }, on() {},
     registerTool(value: typeof factory) { if (value?.({}).name === "plow_start_thread") factory = value; } });
@@ -45,7 +45,7 @@ test("start-thread refuses a home without an owner handle", async t => {
   process.env.PLOW_AGENT_TOKEN = "test-token";
   const calls: string[] = [];
   t.mock.method(globalThis, "fetch", async (url: string) => { calls.push(url); return Response.json({ participants: [] }); });
-  const tool = factory({ config: { channels: { plow: { apiBase: "http://fixture", lineUid: "line", homeChatUid: "home" } } } });
+  const tool = factory({ config: { channels: { plow: { apiBase: "http://fixture", lineUid: "line", ownerChatUid: "home" } } } });
   await assert.rejects(tool.execute("call", { members: ["+15550000002"], body: "Meet Friday?" }), /no owner handle/);
   assert.deepEqual(calls, ["http://fixture/v1/chats/home"]);
 });

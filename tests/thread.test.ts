@@ -9,7 +9,7 @@ for (const toolName of ["plow_start_thread", "plow_send_message"]) {
   for (const status of [200, 403, 408, 424, 503, "network"] as const) test(`${toolName}: per-turn delivery state, status=${status}`, async t => {
     const { server, apiBase, abortAfter } = await websocketFixture(t);
     const controller = abortAfter();
-    const account = { apiBase, accountId: "chat", lineUid: "line", homeChatUid: "home" };
+    const account = { apiBase, accountId: "chat", lineUid: "line", ownerChatUid: "home" };
     const cfg = { channels: { plow: account } };
     const sender = { type: "member", uid: "owner", role: "owner", provider_key: "+15550000001" };
     const chat = { uid: "home", status: "active", participants: [sender, { type: "agent", relationship: "self", line: { uid: "line" } }] };

@@ -1,5 +1,5 @@
-export async function renderSoul(seed: string, mcpUrl: string | null | undefined, token: string): Promise<string> {
-  if (!mcpUrl) return seed;
+export async function renderPrompt(prompt: string, mcpUrl: string | null | undefined, token: string): Promise<string> {
+  if (!mcpUrl) return prompt;
   try {
     const response = await fetch(mcpUrl, {
       method: "POST", redirect: "error", signal: AbortSignal.timeout(5_000),
@@ -20,10 +20,10 @@ export async function renderSoul(seed: string, mcpUrl: string | null | undefined
       : raw;
     const instructions = JSON.parse(body).result?.instructions;
     if (typeof instructions !== "string" || !instructions.trim()) throw new Error("No Latch instructions");
-    return `${seed}\nInstructions from your owner's Mac through Latch (up to 8,000 characters):\n\n\`\`\`text\n${instructions.slice(0, 8_000)}\n\`\`\`\n`;
+    return `${prompt}\nInstructions from your owner's Mac through Latch (up to 8,000 characters):\n\n\`\`\`text\n${instructions.slice(0, 8_000)}\n\`\`\`\n`;
   } catch {
     // A disconnected Mac must not prevent texting or preserve stale instructions.
-    console.warn("plow-boot: Latch instructions unavailable; continuing with the seed prompt");
-    return seed;
+    console.warn("plow-boot: Latch instructions unavailable; continuing with the base prompt");
+    return prompt;
   }
 }

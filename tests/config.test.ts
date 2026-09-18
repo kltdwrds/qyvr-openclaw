@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderConfig, homeChat, type Identity } from "../boot/config.ts";
+import { renderConfig, findOwnerChat, type Identity } from "../boot/config.ts";
 
 const identity: Identity = {
   line: { uid: "ln_phone" },
@@ -12,7 +12,7 @@ const identity: Identity = {
 
 test("only the owner's phone DM becomes main; other peers and groups stay isolated", () => {
   const config = renderConfig(identity, "http://api:8000");
-  assert.equal(config.channels.plow.homeChatUid, "cht_home");
+  assert.equal(config.channels.plow.ownerChatUid, "cht_home");
   assert.ok(!("ownerMemberUid" in config.channels.plow));
   assert.deepEqual(config.commands.ownerAllowFrom, ["mem_owner"]);
   assert.equal(config.session.dmScope, "per-account-channel-peer");
@@ -23,7 +23,7 @@ test("only the owner's phone DM becomes main; other peers and groups stay isolat
   });
 });
 
-test("mailbox and group chats cannot displace the home DM", () => {
+test("mailbox and group chats cannot displace the owner's DM", () => {
   const config = renderConfig({ ...identity, chats: [...identity.chats,
     { uid: "cht_email", status: "active", participants: [
       { type: "agent", relationship: "self", line: { uid: "ln_mail", provider_type: "email" } },
@@ -33,11 +33,11 @@ test("mailbox and group chats cannot displace the home DM", () => {
       { type: "member", role: "member", uid: "mem_guest" },
     ] },
   ] }, "http://api:8000");
-  assert.equal(config.channels.plow.homeChatUid, "cht_home");
+  assert.equal(config.channels.plow.ownerChatUid, "cht_home");
   assert.equal(config.channels.plow.emailLineUid, "ln_mail");
 });
 
-test("ambiguous or missing homes are refused", () => {
+test("ambiguous or missing owner chats are refused", () => {
   assert.throws(() => renderConfig({ ...identity, chats: [] }, "http://api:8000"), /found 0/);
   assert.throws(() => renderConfig({ ...identity, chats: [...identity.chats, ...identity.chats] }, "http://api:8000"), /found 2/);
   assert.throws(() => renderConfig({ ...identity, chats: [{ ...identity.chats[0], status: "inactive" }] }, "http://api:8000"), /found 0/);
@@ -74,11 +74,11 @@ test("the Plow MCP server uses the stdio bridge with environment credentials", (
   } } });
 });
 
-test("no home is pending; malformed and ambiguous identities are refused", () => {
-  assert.equal(homeChat({ ...identity, chats: [] }), undefined);
-  assert.equal(homeChat(identity)?.uid, "cht_home");
-  assert.throws(() => homeChat({ ...identity, line: { uid: "" }, chats: [] }), /line/);
-  assert.throws(() => homeChat({ ...identity, chats: [...identity.chats, ...identity.chats] }), /found 2/);
+test("no owner chat is pending; malformed and ambiguous identities are refused", () => {
+  assert.equal(findOwnerChat({ ...identity, chats: [] }), undefined);
+  assert.equal(findOwnerChat(identity)?.uid, "cht_home");
+  assert.throws(() => findOwnerChat({ ...identity, line: { uid: "" }, chats: [] }), /line/);
+  assert.throws(() => findOwnerChat({ ...identity, chats: [...identity.chats, ...identity.chats] }), /found 2/);
 });
 
 

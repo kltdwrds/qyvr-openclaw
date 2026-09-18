@@ -99,8 +99,8 @@ native client does not include them. An unavailable Mac does not prevent texting
 | Path | Purpose |
 | --- | --- |
 | `boot/` | Identity lookup, config and prompt rendering, supervisor, probe and MCP bridge. |
-| `plugin/` | Plow channel, transport, delivery, tools and authorization. |
-| `seed/` | Assistant prompt and skills for the owner's Mac and Google Workspace. |
+| `plugin/` | Plow channel, transport, delivery, tools. |
+| `prompt/`, `skills/` | Assistant prompt and skills for the owner's Mac and Google Workspace. |
 | `tests/` | Node tests with local API, WebSocket and MCP fixtures. |
 | `Dockerfile`, `build.ts`, `compose.yml` | Pinned base image, TypeScript build and local runtime. |
 

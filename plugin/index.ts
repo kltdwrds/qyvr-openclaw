@@ -152,9 +152,9 @@ export default defineChannelPluginEntry({
           isError: true, content: [{ type: "text", text: "Plow configuration is unavailable." }], details: {},
         };
         const account = plugin.config.resolveAccount(context.config, "chat");
-        const home = await request<Chat>(account, `/chats/${account.homeChatUid}`);
-        const owner = home.participants.find(p => p.type === "member" && p.role === "owner");
-        if (owner?.type !== "member" || !owner.provider_key) throw new Error("Home chat has no owner handle");
+        const ownerChat = await request<Chat>(account, `/chats/${account.ownerChatUid}`);
+        const owner = ownerChat.participants.find(p => p.type === "member" && p.role === "owner");
+        if (owner?.type !== "member" || !owner.provider_key) throw new Error("The owner's chat has no owner handle");
         const turn = activeTurn.getStore();
         if (!turn) throw new Error("Starting a thread requires an active message");
         const members = [...new Set([owner.provider_key, ...args.members])].sort();

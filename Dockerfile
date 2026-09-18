@@ -5,8 +5,8 @@ USER root
 RUN mkdir -p /opt/plow/skills /var/lib/plow && chown node:node /var/lib/plow
 COPY boot /opt/plow/boot
 COPY plugin /opt/plow/plugin
-COPY seed/SOUL.md /opt/plow/seed/SOUL.md
-COPY seed/skills /opt/plow/skills
+COPY prompt /opt/plow/prompt
+COPY skills /opt/plow/skills
 COPY build.ts /opt/plow/build.ts
 RUN cd /opt/plow/plugin && npm install --omit=peer --ignore-scripts && node /opt/plow/build.ts && chmod +x /opt/plow/probe
 ENV OPENCLAW_STATE_DIR=/var/lib/plow OPENCLAW_CONFIG_PATH=/var/lib/plow/openclaw.json OPENCLAW_NO_RESPAWN=1 NODE_DISABLE_COMPILE_CACHE=1

@@ -13,7 +13,7 @@ export type Message = {
 };
 export type TurnOutcome = "completed" | "incomplete";
 export type Page<T> = { data: T[]; has_more: boolean };
-export type Account = { accountId: string; apiBase: string; lineUid: string; homeChatUid: string; emailLineUid?: string };
+export type Account = { accountId: string; apiBase: string; lineUid: string; ownerChatUid: string; emailLineUid?: string };
 
 export class HttpError extends Error {
   status: number;
@@ -85,7 +85,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       let outcome: TurnOutcome = "incomplete";
       try {
         const checkpoint = checkpoints.get(chat.uid);
-        const firstContact = account.accountId === "chat" && chat.uid === account.homeChatUid && (checkpoint === "" || checkpoint === `first:${message.uid}`);
+        const firstContact = account.accountId === "chat" && chat.uid === account.ownerChatUid && (checkpoint === "" || checkpoint === `first:${message.uid}`);
         outcome = await turn(chat, message, firstContact);
       }
       catch (error) {
@@ -147,7 +147,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
             const page = await request<Page<Message>>(account, `/chats/${chat.uid}/messages?limit=1`);
             const newest = page.data[0];
-            checkpoint = chat.uid === account.homeChatUid && newest?.direction === "inbound" && newest.sender.type === "member"
+            checkpoint = chat.uid === account.ownerChatUid && newest?.direction === "inbound" && newest.sender.type === "member"
               ? `first:${newest.uid}` : newest?.uid ?? "";
             await ack(chat.uid, checkpoint);
             // Include frames that arrived while the baseline was being persisted.
