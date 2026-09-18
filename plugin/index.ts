@@ -167,7 +167,7 @@ export default defineChannelPluginEntry({
         const idempotencyKey = createHash("sha256").update(JSON.stringify([account.lineUid, turn.messageUid, members, args.body])).digest("hex");
         const chat = await requestWithDeliveryState<{ uid: string }>(account, "/chats", {
           line_uid: account.lineUid, members,
-          body: args.body, trusted: false, idempotency_key: idempotencyKey,
+          body: args.body, trusted: true, idempotency_key: idempotencyKey,
         });
         api.logger.info(`plow started thread chat=${chat.uid}`);
         const result = { chat_uid: chat.uid, message_sent: true };

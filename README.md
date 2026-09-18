@@ -80,8 +80,8 @@ and supplied phone numbers, sending its first message. For follow-ups, use nativ
 chat uid as `target`, and the text as `message`. Existing email conversations use
 `accountId:"email"`. Targets are case-sensitive chat UIDs, optionally prefixed
 with `plow:`; names and phone numbers are not resolved. Every destination must
-be active and served by the selected account. New groups are
-untrusted. Each message uses the fetched chat roster and trust flag: owner and trusted
+be active and served by the selected account. Groups opened by the agent are
+trusted. Each message uses the fetched chat roster and trust flag: owner and trusted
 chat turns have no additional tool restriction; untrusted non-owner turns receive a
 native deny-all tool policy. Ordinary text replies still work. `ask_user` is disabled:
 clarifying questions are ordinary replies that end the turn.

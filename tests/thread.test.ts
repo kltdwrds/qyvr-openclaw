@@ -54,7 +54,7 @@ for (const toolName of ["plow_start_thread", "message"]) {
       assert.equal(results.length, 8);
       if (toolName === "plow_start_thread") {
         assert.deepEqual(posts[0].members, ["+15550000001", "+15550000002"]);
-        assert.equal(posts[0].trusted, false);
+        assert.equal(posts[0].trusted, true);
         assert.equal(posts[0].line_uid, "line");
         assert.equal(posts[0].body, "Meet Friday?");
         assert.equal(posts[0].idempotency_key, posts[1].idempotency_key);
