@@ -82,6 +82,11 @@ untrusted. Tools generally require the owner or a trusted chat, but `read`,
 from the current sender and chat roster. `ask_user` is disabled: clarifying
 questions are ordinary replies that end the turn.
 
+Detached sends, including restart delivery, are allowed to active chats the account
+serves; absence of an active turn does not establish who initiated the send.
+The host observes direct replies through `message_sent`; custom send tools return
+API receipts and log sends, without emitting canonical `message_sent` observations.
+
 For Latch, OpenClaw launches a small Node stdio MCP bridge. The bridge forwards
 JSON-RPC to the identity-provided relay with the environment bearer and translates
 JSON or SSE responses back to stdio. This lets the relay use a private host

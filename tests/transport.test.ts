@@ -32,6 +32,33 @@ test("a failed history read cannot masquerade as an empty recovery", async t => 
   await assert.rejects(recover(account, "chat", "acked"), /HTTP 503/);
 });
 
+test("recovery beyond the seen cache does not replay buffered frames or rewind the checkpoint", async t => {
+  const { root, server, apiBase, abortAfter } = await websocketFixture(t);
+  await mkdir(`${root}/plow-checkpoints`);
+  await writeFile(`${root}/plow-checkpoints/group`, "old");
+  const controller = abortAfter();
+  const chat = { uid: "group", status: "active", participants: [{ type: "agent", relationship: "self", line: { uid: "line" } }] };
+  const messages = Array.from({ length: 514 }, (_, i) => ({ uid: `message-${i}`, direction: "inbound", sender: { type: "member" } }));
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    if (url.includes("/messages?")) for (const socket of server.clients) {
+      for (const message of [messages[0], { ...messages[0], uid: "live" }]) socket.send(JSON.stringify({ event_type: "message_received", event_id: message.uid, chat_id: chat.uid, data: { message } }));
+      await new Promise<void>(resolve => { socket.once("pong", resolve); socket.ping(); });
+    }
+    return Response.json(url.endsWith("/chats") ? { data: [chat], has_more: false } : url.endsWith("/chats/group") ? chat :
+      url.includes("/messages?") ? { data: [...messages].reverse(), has_more: false } : { ticket: "ticket" });
+  });
+  const received: string[] = [];
+  await listen({ ...account, apiBase, lineUid: "line" }, controller.signal, () => {}, async (_chat, message) => {
+    if (message.uid === "live") {
+      assert.equal(await readFile(`${root}/plow-checkpoints/group`, "utf8"), messages.at(-1)!.uid);
+      controller.abort();
+    }
+    received.push(message.uid);
+    return "completed";
+  });
+  assert.deepEqual(received, [...messages.map(message => message.uid), "live"]);
+});
+
 for (const outcome of ["completed", "incomplete"] as const) test(`unknown delivery advances once; next turn ${outcome} during abort`, async t => {
   const { root, server, apiBase, abortAfter } = await websocketFixture(t);
   const controller = abortAfter();

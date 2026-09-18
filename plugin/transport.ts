@@ -162,16 +162,20 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
         }
       }
       socket.off("message", trackBufferedChat);
-      // Keep cursor advancement ordered, including frames buffered during recovery.
+      // Retain the finite recovery overlap until this connection closes.
+      const replayed = new Set<string>();
       if (account.accountId === "chat") {
         for (const chat of chats) {
           if (liveChats.has(chat.uid)) continue;
-          for (const message of await recover(account, chat.uid, checkpoints.get(chat.uid)!)) await consume(chat.uid, message);
+          for (const message of await recover(account, chat.uid, checkpoints.get(chat.uid)!)) {
+            await consume(chat.uid, message);
+            replayed.add(message.uid);
+          }
         }
       }
       for await (const [raw] of frames) {
         const event = JSON.parse(raw.toString());
-        if (event.event_type !== "message_received" || seen.has(event.event_id)) continue;
+        if (event.event_type !== "message_received" || seen.has(event.event_id) || replayed.has(event.data.message.uid)) continue;
         await consume(event.chat_id, event.data.message);
         remember(event.event_id);
       }

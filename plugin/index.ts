@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { defineChannelPluginEntry, type ChannelPlugin, type PluginRuntime, type OpenClawConfig } from "openclaw/plugin-sdk/channel-core";
-import { onDiagnosticEvent, waitForDiagnosticEventsDrained } from "openclaw/plugin-sdk/diagnostic-runtime";
 import { loadWebMedia } from "openclaw/plugin-sdk/web-media";
 import { request, listen, accepts, HttpError, DeliveryUnknownError, type Account, type Chat, type Message, type TurnOutcome } from "./transport.ts";
 
@@ -25,6 +24,7 @@ async function requestWithDeliveryState<T>(account: Account, path: string, body:
 
 async function send(account: Account, to: string, text: string, mediaUrls: string[] = [], ownerSend = false) {
   const turn = activeTurn.getStore();
+  // Detached sends validate the destination, not who initiated the operation.
   if (turn && !ownerSend) {
     if (turn.chat.uid !== to || turn.account.accountId !== account.accountId) throw new Error("Plow sends must stay in the current conversation");
   } else if (!accepts(account, await request<Chat>(account, `/chats/${to}`))) {
@@ -82,18 +82,13 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
   return await activeTurn.run({ account, chat, messageUid: message.uid, senderId, isOwner }, async () => {
     let failure: unknown;
     let completed = false;
-    let recoveryDuplicate = false;
-    const unsubscribe = onDiagnosticEvent(event => {
-      if (event.type === "message.processed" && event.channel === "plow" && event.messageId === message.uid && event.sessionKey === route.sessionKey) {
-        recoveryDuplicate = event.outcome === "skipped" && event.reason === "duplicate";
-      }
-    });
     if (account.accountId === "chat") await request(account, `/chats/${chat.uid}/typing`, { action: "start" }).catch(() => log("typing start failed"));
     try {
       const result = await runtime.channel.inbound.dispatch({
         cfg, channel: "plow", accountId: account.accountId, route, ctxPayload,
         replyOptions: { onAgentRunTerminalOutcome: outcome => { completed = outcome === "completed"; if (!completed) failure = new Error("Agent turn failed"); } },
         delivery: {
+          observeMessageSent: true,
           deliver: async payload => {
             const sent = await send(account, chat.uid, payload.text ?? "", payload.mediaUrls ?? (payload.mediaUrl ? [payload.mediaUrl] : []));
             log(`delivered chat=${chat.uid} message=${sent.messageId}`);
@@ -102,17 +97,14 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
           onError: error => { failure = error; },
         },
       });
-      await waitForDiagnosticEventsDrained();
       if (activeTurn.getStore()!.deliveryUnknown) throw new DeliveryUnknownError();
       if (failure) throw failure;
       if (!result.dispatched) throw new Error("Turn was not dispatched");
-      const outcome = recoveryDuplicate || (completed && (activeTurn.getStore()!.replyDelivered || result.dispatchResult.deliberateSilentTerminalReply))
+      const outcome = completed && (activeTurn.getStore()!.replyDelivered || result.dispatchResult.deliberateSilentTerminalReply)
         ? "completed" : "incomplete";
-      if (recoveryDuplicate) log(`host owns recovery chat=${chat.uid} message=${message.uid}`);
       log(`${outcome} chat=${chat.uid} message=${message.uid}`);
       return outcome;
     } finally {
-      unsubscribe();
       if (account.accountId === "chat") await request(account, `/chats/${chat.uid}/typing`, { action: "stop" }).catch(() => log("typing stop failed"));
     }
   });
