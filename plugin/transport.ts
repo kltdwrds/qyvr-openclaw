@@ -118,6 +118,13 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       socket.on("unexpected-response", (_request, response) => socket!.emit("error", new HttpError(response.statusCode!)));
       socket.on("close", code => { unauthorized = code === 4401; });
       const frames = on(socket, "message", { signal, close: ["close"] });
+      const bufferedChats = new Map<string, string>();
+      const liveChats = new Set<string>();
+      const trackBufferedChat = (raw: WebSocket.RawData) => {
+        const event = JSON.parse(raw.toString());
+        if (event.event_type === "message_received" && !bufferedChats.has(event.chat_id)) bufferedChats.set(event.chat_id, event.data.message.uid);
+      };
+      socket.on("message", trackBufferedChat);
       signal.addEventListener("abort", abort, { once: true });
       await once(socket, "open", { signal });
       attempt = 0;
@@ -140,6 +147,12 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
           catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
             const page = await request<Page<Message>>(account, `/chats/${chat.uid}/messages?limit=1`);
+            // Keep the first queued frame recoverable, then drain frames in arrival order.
+            if (bufferedChats.has(chat.uid)) {
+              await ack(chat.uid, `first:${bufferedChats.get(chat.uid)}`);
+              liveChats.add(chat.uid);
+              continue;
+            }
             const newest = page.data[0];
             checkpoint = chat.uid === account.homeChatUid && newest?.direction === "inbound" && newest.sender.type === "member"
               ? `first:${newest.uid}` : newest?.uid ?? "";
@@ -148,9 +161,11 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
           checkpoints.set(chat.uid, checkpoint);
         }
       }
+      socket.off("message", trackBufferedChat);
       // Keep cursor advancement ordered, including frames buffered during recovery.
       if (account.accountId === "chat") {
         for (const chat of chats) {
+          if (liveChats.has(chat.uid)) continue;
           for (const message of await recover(account, chat.uid, checkpoints.get(chat.uid)!)) await consume(chat.uid, message);
         }
       }

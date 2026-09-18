@@ -50,5 +50,5 @@ for (const outcome of ["aborted", "failed", "empty", "delivered", "silent", "dup
     { name: "Owner", type: "member", role: "owner" },
     { name: "unnamed member", type: "agent", role: "self" },
   ]);
-  assert.equal(await readFile(`${root}/plow-checkpoints/chat`, "utf8"), ["aborted", "failed", "empty"].includes(outcome) ? "" : "inbound");
+  assert.equal(await readFile(`${root}/plow-checkpoints/chat`, "utf8"), ["aborted", "failed", "empty"].includes(outcome) ? "first:inbound" : "inbound");
 });

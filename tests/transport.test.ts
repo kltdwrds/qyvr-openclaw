@@ -54,8 +54,8 @@ for (const outcome of ["completed", "incomplete"] as const) test(`unknown delive
   assert.equal(await readFile(`${root}/plow-checkpoints/chat`, "utf8"), outcome === "completed" ? "next" : "uncertain");
 });
 
-for (const scenario of ["waited", "pending", "answered", "peer", "group"]) test(`first contact and restart: ${scenario}`, async t => {
-  const { root, apiBase, abortAfter } = await websocketFixture(t);
+for (const scenario of ["waited", "pending", "buffered", "answered", "peer", "group"]) test(`first contact and restart: ${scenario}`, async t => {
+  const { root, server, apiBase, abortAfter } = await websocketFixture(t);
   if (scenario === "waited") {
     await mkdir(`${root}/plow-checkpoints`);
     await writeFile(`${root}/plow-checkpoints/home`, "");
@@ -66,6 +66,7 @@ for (const scenario of ["waited", "pending", "answered", "peer", "group"]) test(
   const first = { uid: "first", body: "What is 17 + 25?", direction: scenario === "answered" ? "outbound" : "inbound",
     sender: scenario === "peer" ? { type: "agent", relationship: "peer", line: { uid: "peer" } } : sender };
   const older = { ...first, uid: "older" };
+  if (scenario === "buffered") server.on("connection", (socket: { send: (text: string) => void }) => socket.send(JSON.stringify({ event_type: "message_received", event_id: "first", chat_id: "home", data: { message: first } })));
   t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
     url.endsWith("/chats") ? { data: [chat], has_more: false } : url.endsWith("/chats/home") ? chat : url.includes("/messages?") ? { data: url.includes("limit=1") || scenario === "waited" ? [first] : [first, older], has_more: false } : { ticket: "ticket" }));
   const turns: { uid: string; firstContact: boolean }[] = [];
@@ -77,7 +78,7 @@ for (const scenario of ["waited", "pending", "answered", "peer", "group"]) test(
     });
     assert.equal(await readFile(`${root}/plow-checkpoints/home`, "utf8"), "first");
   }
-  assert.deepEqual(turns, ["waited", "pending"].includes(scenario) ? [{ uid: "first", firstContact: true }] : []);
+  assert.deepEqual(turns, ["waited", "pending", "buffered"].includes(scenario) ? [{ uid: "first", firstContact: true }] : []);
 });
 
 test("first-contact recovery includes its message and newer arrivals, excluding older history", async t => {
@@ -158,4 +159,31 @@ test("a new chat's message arriving during listing is buffered by the socket", a
     return "completed";
   });
   assert.deepEqual(received, ["new-message"]);
+});
+
+for (const count of [1, 2]) for (const arrival of ["listing", "baseline"] as const) test(`${count} existing chat frames arriving during ${arrival} are delivered in order without replaying history`, async t => {
+  const { root, server, apiBase, abortAfter } = await websocketFixture(t);
+  const controller = abortAfter();
+  const chat = { uid: "group", status: "active", participants: [{ type: "agent", relationship: "self", line: { uid: "line" } }] };
+  const messages = ["old", "first", "second"].slice(0, count + 1).map(uid => ({ uid, direction: "inbound", sender: { type: "member" } }));
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    if (arrival === "listing" ? url.endsWith("/chats") : url.includes("limit=1")) {
+      for (const socket of server.clients) {
+        for (const message of messages.slice(1)) socket.send(JSON.stringify({ event_type: "message_received", event_id: message.uid, chat_id: chat.uid, data: { message } }));
+        // Wait for a round trip so the frames reach the client before the snapshot.
+        await new Promise<void>(resolve => { socket.once("pong", resolve); socket.ping(); });
+      }
+    }
+    return Response.json(url.endsWith("/chats") ? { data: [chat], has_more: false } :
+      url.endsWith(`/chats/${chat.uid}`) ? chat : url.includes("/messages?")
+        ? { data: url.includes("limit=1") ? messages.slice(-1) : [...messages].reverse(), has_more: false } : { ticket: "ticket" });
+  });
+  const received: string[] = [];
+  await listen({ ...account, apiBase, lineUid: "line", homeChatUid: "home" }, controller.signal, () => {}, async (_chat, message) => {
+    received.push(message.uid);
+    if (received.length === count) controller.abort();
+    return "completed";
+  });
+  assert.deepEqual(received, messages.slice(1).map(message => message.uid));
+  assert.equal(await readFile(`${root}/plow-checkpoints/group`, "utf8"), messages.at(-1)!.uid);
 });
