@@ -1,0 +1,24 @@
+{
+  "id": "plow",
+  "name": "Plow",
+  "channels": ["plow"],
+  "contracts": { "tools": ["plow_start_thread", "plow_send_message"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false },
+  "channelConfigs": {
+    "plow": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["apiBase", "homeChatUid", "lineUid", "ownerMemberUid"],
+        "properties": {
+          "apiBase": { "type": "string" },
+          "homeChatUid": { "type": "string" },
+          "lineUid": { "type": "string" },
+          "ownerMemberUid": { "type": "string" },
+          "emailLineUid": { "type": "string" }
+        }
+      }
+    }
+  }
+}
