@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { websocketFixture } from "./ws-fixture.ts";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import fs, { mkdir, readFile, writeFile } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { listen, DeliveryUnknownError, recover, type Account, type Message } from "../plugin/transport.ts";
 
 const account = { apiBase: "http://fixture", accountId: "chat" } as Account;
@@ -30,6 +31,39 @@ test("a failed history read cannot masquerade as an empty recovery", async t => 
   process.env.PLOW_AGENT_TOKEN = "test-token";
   t.mock.method(globalThis, "fetch", async () => new Response("unavailable", { status: 503 }));
   await assert.rejects(recover(account, "chat", "acked"), /HTTP 503/);
+});
+
+test("a frame arriving while a synthesized checkpoint is written is recovered", async t => {
+  const { root, server, apiBase, abortAfter } = await websocketFixture(t);
+  const controller = abortAfter();
+  const chat = { uid: "group", status: "active", participants: [{ type: "agent", relationship: "self", line: { uid: "line" } }] };
+  const message = { uid: "arriving", direction: "inbound", sender: { type: "member" } };
+  t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
+    url.endsWith("/chats") ? { data: [chat], has_more: false } : url.endsWith("/chats/group") ? chat :
+    url.includes("/messages?") ? { data: [message], has_more: false } : { ticket: "ticket" }));
+  const originalWrite = fs.writeFile;
+  let injected = false;
+  const writer = t.mock.method(fs, "writeFile", async (...args: Parameters<typeof fs.writeFile>) => {
+    if (!injected && String(args[0]).endsWith("/group.tmp") && args[1] === message.uid) {
+      injected = true;
+      for (const socket of server.clients) {
+        socket.send(JSON.stringify({ event_type: "message_received", event_id: "event", chat_id: chat.uid, data: { message } }));
+        await new Promise<void>(resolve => { socket.once("pong", resolve); socket.ping(); });
+      }
+    }
+    return originalWrite(...args);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { writer.mock.restore(); syncBuiltinESMExports(); });
+  const received: string[] = [];
+  await listen({ ...account, apiBase, lineUid: "line", homeChatUid: "home" }, controller.signal, () => {}, async (_chat, message) => {
+    received.push(message.uid);
+    controller.abort();
+    return "completed";
+  });
+  assert.equal(injected, true);
+  assert.deepEqual(received, [message.uid]);
+  assert.equal(await readFile(`${root}/plow-checkpoints/group`, "utf8"), message.uid);
 });
 
 test("recovery beyond the seen cache does not replay buffered frames or rewind the checkpoint", async t => {

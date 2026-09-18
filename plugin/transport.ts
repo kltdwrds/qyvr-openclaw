@@ -119,7 +119,6 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       socket.on("close", code => { unauthorized = code === 4401; });
       const frames = on(socket, "message", { signal, close: ["close"] });
       const bufferedChats = new Map<string, string>();
-      const liveChats = new Set<string>();
       const trackBufferedChat = (raw: WebSocket.RawData) => {
         const event = JSON.parse(raw.toString());
         if (event.event_type === "message_received" && !bufferedChats.has(event.chat_id)) bufferedChats.set(event.chat_id, event.data.message.uid);
@@ -147,16 +146,15 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
           catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
             const page = await request<Page<Message>>(account, `/chats/${chat.uid}/messages?limit=1`);
-            // Keep the first queued frame recoverable, then drain frames in arrival order.
-            if (bufferedChats.has(chat.uid)) {
-              await ack(chat.uid, `first:${bufferedChats.get(chat.uid)}`);
-              liveChats.add(chat.uid);
-              continue;
-            }
             const newest = page.data[0];
             checkpoint = chat.uid === account.homeChatUid && newest?.direction === "inbound" && newest.sender.type === "member"
               ? `first:${newest.uid}` : newest?.uid ?? "";
             await ack(chat.uid, checkpoint);
+            // Include frames that arrived while the baseline was being persisted.
+            if (bufferedChats.has(chat.uid)) {
+              checkpoint = `first:${bufferedChats.get(chat.uid)}`;
+              await ack(chat.uid, checkpoint);
+            }
           }
           checkpoints.set(chat.uid, checkpoint);
         }
@@ -166,7 +164,6 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       const replayed = new Set<string>();
       if (account.accountId === "chat") {
         for (const chat of chats) {
-          if (liveChats.has(chat.uid)) continue;
           for (const message of await recover(account, chat.uid, checkpoints.get(chat.uid)!)) {
             await consume(chat.uid, message);
             replayed.add(message.uid);
