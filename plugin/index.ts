@@ -46,6 +46,7 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
   const sender = message.sender;
   const senderId = sender.type === "member" ? sender.uid : sender.line.uid;
   const senderIsOwner = sender.type === "member" && chat.participants.some(p => p.type === "member" && p.uid === senderId && p.role === "owner");
+  const toolsEnabled = senderIsOwner || chat.trusted;
   const senderName = sender.type === "member" ? sender.display_name : sender.line.display_name;
   const kind = account.accountId === "email" || chat.participants.length === 2 ? "direct" : "group";
   const peer = { kind, id: kind === "direct" ? senderId : chat.uid };
@@ -67,6 +68,7 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
   const roster = JSON.stringify({ first_contact: firstContact, trusted: chat.trusted, participants });
   const ctxPayload = await runtime.channel.inbound.buildContext({
     channel: "plow", accountId: account.accountId, messageId: message.uid, timestamp: Date.parse(message.created_at),
+    access: { toolPolicy: toolsEnabled ? undefined : { deny: ["*"] } },
     from: senderId, sender: { id: senderIsOwner ? String(cfg.commands!.ownerAllowFrom![0]) : senderId, name: senderName, isBot: sender.type === "agent" },
     conversation: { kind, id: chat.uid, label: chat.display_name, routePeer: peer },
     route: { ...route, routeSessionKey: route.sessionKey }, reply: { to: chat.uid, replyToId: message.reply_to?.uid },
@@ -82,7 +84,7 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
     try {
       const result = await runtime.channel.inbound.dispatch({
         cfg, channel: "plow", accountId: account.accountId, route, ctxPayload,
-        replyOptions: { onAgentRunTerminalOutcome: outcome => { completed = outcome === "completed"; if (!completed) failure = new Error("Agent turn failed"); } },
+        replyOptions: { disableTools: !toolsEnabled, onAgentRunTerminalOutcome: outcome => { completed = outcome === "completed"; if (!completed) failure = new Error("Agent turn failed"); } },
         delivery: {
           observeMessageSent: true,
           deliver: async payload => {

@@ -81,9 +81,10 @@ chat uid as `target`, and the text as `message`. Existing email conversations us
 `accountId:"email"`. Targets are case-sensitive chat UIDs, optionally prefixed
 with `plow:`; names and phone numbers are not resolved. Every destination must
 be active and served by the selected account. New groups are
-untrusted. The owner and trusted chats may use tools freely; in untrusted groups,
-the model judges the request using the chat context and the owner’s instructions. `ask_user` is disabled: clarifying
-questions are ordinary replies that end the turn.
+untrusted. Each message uses the fetched chat roster and trust flag: owner and trusted
+chat turns have no additional tool restriction; untrusted non-owner turns receive a
+native deny-all tool policy. Ordinary text replies still work. `ask_user` is disabled:
+clarifying questions are ordinary replies that end the turn.
 
 Detached sends, including restart delivery, are allowed to active chats the account
 serves; absence of an active turn does not establish who initiated the send.
