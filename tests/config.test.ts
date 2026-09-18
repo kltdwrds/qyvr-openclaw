@@ -98,3 +98,9 @@ test("MCP config does not inherit a host CA override", () => {
 test("phone turns cannot block on ask_user", () => {
   assert.deepEqual(renderConfig(identity, "http://api:8000").tools.deny, ["ask_user"]);
 });
+
+test("native messaging replaces the bespoke send tool", () => {
+  assert.deepEqual(renderConfig(identity, "http://api:8000").tools, {
+    profile: "messaging", alsoAllow: ["read", "exec", "plow_start_thread"], deny: ["ask_user"],
+  });
+});

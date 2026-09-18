@@ -52,6 +52,6 @@ export function renderConfig(identity: Identity, apiBase: string) {
     memory: { search: { rememberAcrossConversations: true } },
     // An empty allowlist means unrestricted in OpenClaw.
     skills: { load: { extraDirs: ["/opt/plow/skills"] }, allowBundled: ["plow-no-bundled-skills"] },
-    tools: { profile: "messaging", alsoAllow: ["read", "exec", "plow_start_thread", "plow_send_message"], deny: ["ask_user"] },
+    tools: { profile: "messaging", alsoAllow: ["read", "exec", "plow_start_thread"], deny: ["ask_user"] },
   };
 }

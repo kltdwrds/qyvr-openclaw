@@ -74,17 +74,21 @@ and acknowledged, losing that reply rather than replaying later answered turns.
 An ambiguous delivery is not retried; a crash after a successful send but before
 its checkpoint can still duplicate a reply.
 
-Replies stay in the source chat. Two tools provide explicit sends:
-`plow_start_thread` opens a group with the owner and supplied phone numbers;
-`plow_send_message` sends to an existing chat the account serves. New groups are
+Replies stay in the source chat. `plow_start_thread` opens a group with the owner
+and supplied phone numbers, sending its first message. For follow-ups, use native
+`message` with `action:"send"`, `channel:"plow"`, `accountId:"chat"`, the returned
+chat uid as `target`, and the text as `message`. Existing email conversations use
+`accountId:"email"`. Targets are case-sensitive chat UIDs, optionally prefixed
+with `plow:`; names and phone numbers are not resolved. Every destination must
+be active and served by the selected account. New groups are
 untrusted. The owner and trusted chats may use tools freely; in untrusted groups,
 the model judges the request using the chat context and the owner’s instructions. `ask_user` is disabled: clarifying
 questions are ordinary replies that end the turn.
 
 Detached sends, including restart delivery, are allowed to active chats the account
 serves; absence of an active turn does not establish who initiated the send.
-The host observes direct replies through `message_sent`; custom send tools return
-API receipts and log sends, without emitting canonical `message_sent` observations.
+The host observes direct replies and native sends through `message_sent`.
+The group-opening tool returns an API receipt and logs creation.
 
 For Latch, OpenClaw launches a small Node stdio MCP bridge. The bridge forwards
 JSON-RPC to the identity-provided relay with the environment bearer and translates

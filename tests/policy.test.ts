@@ -10,7 +10,7 @@ for (const mode of ["full", "discovery", "tool-discovery"]) test(`${mode} expose
     registerTool(factory: (context: object) => { name: string }) { names.push(factory({}).name); },
     on(name: string) { hooks.push(name); },
   });
-  assert.deepEqual(names, ["plow_start_thread", "plow_send_message"]);
+  assert.deepEqual(names, ["plow_start_thread"]);
   assert.ok(!hooks.includes("before_tool_call"));
 });
 
@@ -62,29 +62,38 @@ test("start-thread returns a tool error without config and makes no request", as
   assert.equal(fetch.mock.callCount(), 0);
 });
 
-for (const status of [200, 403, 503, "unserved"] as const) test(`send-message checks reach and reports only confirmed sends: ${status}`, async t => {
-  let factory: ((context: object) => { name: string; execute: (id: string, args: object) => Promise<unknown> }) | undefined;
-  entry.register({ registrationMode: "full", runtime: {}, registerChannel() {}, logger: { info() {} }, on() {},
-    registerTool(value: typeof factory) { if (value?.({}).name === "plow_send_message") factory = value; } });
-  assert.ok(factory);
+for (const accountId of ["chat", "email"]) for (const status of [200, 403, 503, "unserved", "inactive"] as const) test(`native send checks account reach and reports only confirmed sends: ${accountId}, ${status}`, async t => {
+  let channel: { outbound: { sendText: (context: object) => Promise<unknown> } };
+  entry.register({ registrationMode: "full", runtime: {}, registerTool() {}, logger: { info() {} },
+    registerChannel(value: { plugin: typeof channel }) { channel = value.plugin; } });
   process.env.PLOW_AGENT_TOKEN = "test-token";
   const posts: unknown[] = [];
   t.mock.method(globalThis, "fetch", async (_url: string, options: RequestInit) => {
     if (options.method === "POST") {
       posts.push(JSON.parse(options.body as string));
-      return Response.json({ uid: "sent-message" }, { status: status === "unserved" ? 200 : status });
+      return Response.json({ uid: "sent-message" }, { status: typeof status === "number" ? status : 200 });
     }
-    return Response.json({ uid: "target", status: "active", participants: [
-      { type: "agent", relationship: "self", line: { uid: status === "unserved" ? "other-line" : "line" } },
+    return Response.json({ uid: "target", status: status === "inactive" ? "inactive" : "active", participants: [
+      { type: "agent", relationship: "self", line: { uid: status === "unserved" ? "other-line" : accountId } },
     ] });
   });
-  const tool = factory({ config: { channels: { plow: { apiBase: "http://fixture", lineUid: "line" } } } });
-  const result = tool.execute("call", { chat_uid: "target", body: "Friday at noon." });
-  if (status === 200) assert.deepEqual((await result as { details: unknown }).details,
-    { chat_uid: "target", message_uid: "sent-message", message_sent: true });
-  else await assert.rejects(result, status === "unserved" ? /does not serve/ : status === 503 ? /delivery is unknown/ : /HTTP 403/);
-  assert.deepEqual(posts, status === "unserved" ? [] : [{ body: "Friday at noon.", attachment_uids: [] }]);
-  assert.deepEqual(await factory({}).execute("call", { chat_uid: "target", body: "Hello" }), {
-    isError: true, content: [{ type: "text", text: "Plow configuration is unavailable." }], details: {},
-  });
+  const result = channel!.outbound.sendText({ cfg: { channels: { plow: { apiBase: "http://fixture", lineUid: "chat", emailLineUid: "email" } } }, accountId, to: "target", text: "Friday at noon." });
+  if (status === 200) assert.deepEqual(await result, { channel: "plow", messageId: "sent-message" });
+  else await assert.rejects(result, typeof status === "string" ? /does not serve/ : status === 503 ? /delivery is unknown/ : /HTTP 403/);
+  assert.deepEqual(posts, typeof status === "string" ? [] : [{ body: "Friday at noon.", attachment_uids: [] }]);
+});
+
+test("native targets preserve opaque UID case and reject names and non-chat IDs", () => {
+  let channel: { messaging: { normalizeTarget: (raw: string) => string | undefined; targetResolver: { looksLikeId: (raw: string, normalized?: string) => boolean } } };
+  entry.register({ registrationMode: "full", runtime: {}, registerTool() {}, logger: { info() {} },
+    registerChannel(value: { plugin: typeof channel }) { channel = value.plugin; } });
+  const uid = "cht_AbCdef0123456789_-XyZqw";
+  for (const target of [uid, `plow:${uid}`, `  plow:${uid}  `]) {
+    const normalized = channel!.messaging.normalizeTarget(target);
+    assert.equal(normalized, uid);
+    assert.equal(channel!.messaging.targetResolver.looksLikeId(target, normalized), true);
+  }
+  for (const target of ["Joe", "+15550000001", "mem_owner", "cht_", "cht_a/b", "cht_a?b"]) {
+    assert.equal(channel!.messaging.targetResolver.looksLikeId(target), false);
+  }
 });

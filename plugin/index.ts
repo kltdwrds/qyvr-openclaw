@@ -5,7 +5,7 @@ import { loadWebMedia } from "openclaw/plugin-sdk/web-media";
 import { request, listen, accepts, HttpError, DeliveryUnknownError, type Account, type Chat, type Message, type TurnOutcome } from "./transport.ts";
 
 let runtime: PluginRuntime;
-const activeTurn = new AsyncLocalStorage<{ account: Account; chat: Chat; messageUid: string; deliveryUnknown?: boolean; replyDelivered?: boolean }>();
+const activeTurn = new AsyncLocalStorage<{ chat: Chat; messageUid: string; deliveryUnknown?: boolean; replyDelivered?: boolean }>();
 
 async function requestWithDeliveryState<T>(account: Account, path: string, body: unknown): Promise<T> {
   const turn = activeTurn.getStore();
@@ -20,12 +20,10 @@ async function requestWithDeliveryState<T>(account: Account, path: string, body:
   }
 }
 
-async function send(account: Account, to: string, text: string, mediaUrls: string[] = [], explicitSend = false) {
+async function send(account: Account, to: string, text: string, mediaUrls: string[] = [], reply = false) {
   const turn = activeTurn.getStore();
-  // Detached sends validate the destination, not who initiated the operation.
-  if (turn && !explicitSend) {
-    if (turn.chat.uid !== to || turn.account.accountId !== account.accountId) throw new Error("Plow sends must stay in the current conversation");
-  } else if (!accepts(account, await request<Chat>(account, `/chats/${to}`))) {
+  if (!reply && turn?.chat.uid === to) throw new Error("To reply in the current conversation, reply normally instead of using message(action=send).");
+  if (!accepts(account, await request<Chat>(account, `/chats/${to}`))) {
     throw new Error("Plow account does not serve this conversation");
   }
   if (turn?.deliveryUnknown) throw new DeliveryUnknownError();
@@ -76,7 +74,7 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
     media,
   });
   log(`turn ${JSON.stringify({ chat: chat.uid, message: message.uid, first_contact: firstContact, senderId, senderName, senderIsOwner: chat.participants.some(p => p.type === "member" && p.uid === senderId && p.role === "owner"), sessionKey: route.sessionKey })}`);
-  return await activeTurn.run({ account, chat, messageUid: message.uid }, async () => {
+  return await activeTurn.run({ chat, messageUid: message.uid }, async () => {
     let failure: unknown;
     let completed = false;
     if (account.accountId === "chat") await request(account, `/chats/${chat.uid}/typing`, { action: "start" }).catch(() => log("typing start failed"));
@@ -87,7 +85,7 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
         delivery: {
           observeMessageSent: true,
           deliver: async payload => {
-            const sent = await send(account, chat.uid, payload.text ?? "", payload.mediaUrls ?? (payload.mediaUrl ? [payload.mediaUrl] : []));
+            const sent = await send(account, chat.uid, payload.text ?? "", payload.mediaUrls ?? (payload.mediaUrl ? [payload.mediaUrl] : []), true);
             log(`delivered chat=${chat.uid} message=${sent.messageId}`);
             return { messageIds: [sent.messageId] };
           },
@@ -117,6 +115,11 @@ const plugin: ChannelPlugin<Account> = {
     isConfigured: account => Boolean(account.apiBase && process.env.PLOW_AGENT_TOKEN),
     formatAllowFrom: ({ allowFrom }) => allowFrom.map(String),
   },
+  agentPrompt: { messageToolHints: () => ["Plow message(action=send) is for OTHER conversations; to reply in the current conversation, just answer normally."] },
+  messaging: {
+    normalizeTarget: raw => raw.trim().replace(/^plow:/i, ""),
+    targetResolver: { looksLikeId: (raw, normalized) => /^cht_[A-Za-z0-9_-]+$/.test(normalized ?? raw.trim().replace(/^plow:/i, "")), hint: "Use a Plow chat uid (cht_…)." },
+  },
   gateway: {
     startAccount: async ctx => {
       const log = (text: string) => ctx.log?.info(text);
@@ -139,7 +142,7 @@ export default defineChannelPluginEntry({
   registerCapabilities(api) {
     api.registerTool(context => ({
       name: "plow_start_thread", label: "Start a Plow group thread",
-      description: "Start a group text on your own Plow line with the owner and the supplied phone numbers. Sends the first message and returns the chat uid; use plow_send_message for follow-ups. Use these Plow tools instead of message, conversations_send or sessions_* for Plow chats. Accepts phone numbers, not chat ids or email addresses.",
+      description: "Start a group text on your own Plow line with the owner and the supplied phone numbers. Sends the first message and returns the chat uid; use message with action send, channel plow, accountId chat and that uid as target for follow-ups. Accepts phone numbers, not chat ids or email addresses.",
       parameters: {
         type: "object", required: ["members", "body"], additionalProperties: false,
         properties: {
@@ -165,27 +168,6 @@ export default defineChannelPluginEntry({
         });
         api.logger.info(`plow started thread chat=${chat.uid}`);
         const result = { chat_uid: chat.uid, message_sent: true };
-        return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
-      },
-    }));
-    api.registerTool(context => ({
-      name: "plow_send_message", label: "Send to a Plow chat",
-      description: "Send a message to an existing chat this Plow account serves, including a thread returned by plow_start_thread. Use this instead of message, conversations_send or sessions_* for Plow chats. Success confirms only the returned message was sent.",
-      parameters: {
-        type: "object", required: ["chat_uid", "body"], additionalProperties: false,
-        properties: {
-          chat_uid: { type: "string", minLength: 1, description: "The destination Plow chat uid, such as one returned by plow_start_thread." },
-          body: { type: "string", minLength: 1, description: "The message to send." },
-        },
-      },
-      async execute(_id, args: { chat_uid: string; body: string }) {
-        if (!context.config) return {
-          isError: true, content: [{ type: "text", text: "Plow configuration is unavailable." }], details: {},
-        };
-        const account = plugin.config.resolveAccount(context.config, "chat");
-        const sent = await send(account, args.chat_uid, args.body, [], true);
-        api.logger.info(`plow sent message chat=${args.chat_uid} message=${sent.messageId}`);
-        const result = { chat_uid: args.chat_uid, message_uid: sent.messageId, message_sent: true };
         return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
       },
     }));
