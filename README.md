@@ -74,12 +74,11 @@ and acknowledged, losing that reply rather than replaying later answered turns.
 An ambiguous delivery is not retried; a crash after a successful send but before
 its checkpoint can still duplicate a reply.
 
-Replies stay in the source chat. Two owner-only tools provide explicit sends:
+Replies stay in the source chat. Two tools provide explicit sends:
 `plow_start_thread` opens a group with the owner and supplied phone numbers;
 `plow_send_message` sends to an existing chat the account serves. New groups are
-untrusted. Tools generally require the owner or a trusted chat, but `read`,
-`exec` and both send tools always require the owner. The plugin derives authority
-from the current sender and chat roster. `ask_user` is disabled: clarifying
+untrusted. The owner and trusted chats may use tools freely; in untrusted groups,
+the model judges the request using the chat context and the owner’s instructions. `ask_user` is disabled: clarifying
 questions are ordinary replies that end the turn.
 
 Detached sends, including restart delivery, are allowed to active chats the account

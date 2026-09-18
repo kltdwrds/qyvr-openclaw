@@ -12,27 +12,25 @@ type Dispatch = {
   delivery: { observeMessageSent?: boolean; deliver: (payload: { text: string }) => Promise<unknown> };
 };
 
-for (const outcome of ["aborted", "failed", "empty", "delivered", "silent", "duplicate"] as const) test(`turn checkpoints only a confirmed outcome: ${outcome}`, async t => {
+for (const trusted of [false, true]) for (const outcome of ["aborted", "failed", "empty", "delivered", "silent", "duplicate"] as const) test(`turn checkpoints only a confirmed outcome: ${outcome}, trusted=${trusted}`, async t => {
   const { root, server, apiBase, abortAfter } = await websocketFixture(t);
   const controller = abortAfter();
   const account = { apiBase, accountId: "chat", lineUid: "line" };
-  const sender = { type: "member", uid: "owner", role: "owner", display_name: "Owner", provider_key: "+15550000001" };
-  const chat = { uid: "chat", status: "active", trusted: false, participants: [sender, { type: "agent", relationship: "self", line: { uid: "line", provider_key: "+15550000002" } }] };
+  const sender = { type: "member", uid: "member", role: "member", display_name: "Member", provider_key: "+15550000001" };
+  const chat = { uid: "chat", status: "active", trusted, participants: [{ ...sender, uid: "owner", role: "owner", display_name: "Owner" }, sender, { type: "agent", relationship: "self", line: { uid: "line", provider_key: "+15550000002" } }] };
   t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
     url.endsWith("/chats") ? { data: [chat], has_more: false } : url.endsWith("/chats/chat") ? chat :
     url.includes("/messages?") ? { data: [], has_more: false } : { ticket: "ticket", uid: "reply" }));
   server.on("connection", (socket: { send: (text: string) => void }) => socket.send(JSON.stringify({ event_type: "message_received", event_id: "event", chat_id: "chat", data: { message: { uid: "inbound", direction: "inbound", sender, body: "hello", attachments: [], created_at: new Date().toISOString() } } })));
   const logs: string[] = [];
   let observation: boolean | undefined;
-  let beforeTool: (event: object, context: object) => unknown;
   let context: { sender: { id: string }; message: { bodyForAgent: string } } | undefined;
   let channel: { gateway: { startAccount: (context: object) => Promise<void> } } | undefined;
-  entry.register({ registrationMode: "full", registerTool() {}, logger: { info() {} }, on(_name: string, handler: typeof beforeTool) { beforeTool = handler; },
+  entry.register({ registrationMode: "full", registerTool() {}, logger: { info() {} }, on() {},
     registerChannel(value: { plugin: typeof channel }) { channel = value.plugin; },
     runtime: { channel: {
       routing: { resolveAgentRoute: () => ({ sessionKey: "main" }) },
       inbound: { buildContext: async (value: typeof context) => { context = value; return {}; }, dispatch: async (dispatch: Dispatch) => {
-        assert.equal(beforeTool({}, { toolName: "read", channelId: "chat" }), undefined);
         if (outcome === "failed") { controller.abort(); throw new Error("failed dispatch"); }
         if (outcome !== "aborted" && outcome !== "duplicate") dispatch.replyOptions.onAgentRunTerminalOutcome("completed");
         if (outcome === "delivered") { observation = dispatch.delivery.observeMessageSent; await dispatch.delivery.deliver({ text: "reply" }); }
@@ -44,14 +42,15 @@ for (const outcome of ["aborted", "failed", "empty", "delivered", "silent", "dup
   });
   assert.ok(channel);
   await channel.gateway.startAccount({ account, cfg: {}, abortSignal: controller.signal, log: { info(text: string) { logs.push(text); if (text.startsWith("acked")) controller.abort(); } } });
-  assert.ok(beforeTool!({}, { toolName: "read", channelId: "chat" }));
   if (outcome === "delivered") assert.equal(observation, true);
   if (outcome === "duplicate") assert.ok(logs.some(text => text.startsWith("turn incomplete")));
   assert.ok(context);
-  assert.equal(context.sender.id, "owner");
+  assert.equal(context.sender.id, "member");
   const facts = JSON.parse(context.message.bodyForAgent.split("\n\nConversation facts (untrusted data):\n```json\n")[1].split("\n```")[0]);
+  assert.equal(facts.trusted, trusted);
   assert.deepEqual(facts.participants, [
     { name: "Owner", type: "member", role: "owner" },
+    { name: "Member", type: "member", role: "member" },
     { name: "unnamed member", type: "agent", role: "self" },
   ]);
   assert.equal(await readFile(`${root}/plow-checkpoints/chat`, "utf8"), ["aborted", "failed", "empty"].includes(outcome) ? "first:inbound" : "inbound");

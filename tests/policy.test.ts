@@ -2,24 +2,19 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import entry from "../plugin/index.ts";
 
-for (const mode of ["full", "discovery", "tool-discovery"]) test(`${mode} registers the policy and denies a call without a message requester`, async () => {
-  let beforeTool: ((event: unknown, context: unknown) => unknown) | undefined;
+for (const mode of ["full", "discovery", "tool-discovery"]) test(`${mode} exposes Plow tools without a tool-call gate`, () => {
+  const names: string[] = [];
+  const hooks: string[] = [];
   entry.register({
-    registrationMode: mode,
-    registerChannel() {}, runtime: {},
-    registerTool() {}, logger: { info() {} },
-    on(name: string, handler: typeof beforeTool) { if (name === "before_tool_call") beforeTool = handler; },
+    registrationMode: mode, registerChannel() {}, runtime: {}, logger: { info() {} },
+    registerTool(factory: (context: object) => { name: string }) { names.push(factory({}).name); },
+    on(name: string) { hooks.push(name); },
   });
-  assert.ok(beforeTool, "tool discovery must carry the authorization hook");
-  for (const toolName of ["read", "exec", "plow_start_thread", "plow_send_message"]) assert.deepEqual(await beforeTool({}, { toolName }), {
-    block: true, blockReason: "This tool requires the owner.",
-  });
-  assert.deepEqual(await beforeTool({}, { toolName: "plow_tool" }), {
-    block: true, blockReason: "Tools require the owner or a trusted conversation.",
-  });
+  assert.deepEqual(names, ["plow_start_thread", "plow_send_message"]);
+  assert.ok(!hooks.includes("before_tool_call"));
 });
 
-for (const served of [true, false]) test(`host-originated send checks account reach: served=${served}`, async t => {
+for (const served of [true, false]) test(`detached send checks account reach: served=${served}`, async t => {
   let channel: { outbound: { sendText: (context: object) => Promise<unknown> } } | undefined;
   entry.register({ registrationMode: "full", runtime: {}, registerTool() {}, logger: { info() {} }, on() {},
     registerChannel(value: { plugin: typeof channel }) { channel = value.plugin; } });

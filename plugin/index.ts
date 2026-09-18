@@ -4,10 +4,8 @@ import { defineChannelPluginEntry, type ChannelPlugin, type PluginRuntime, type 
 import { loadWebMedia } from "openclaw/plugin-sdk/web-media";
 import { request, listen, accepts, HttpError, DeliveryUnknownError, type Account, type Chat, type Message, type TurnOutcome } from "./transport.ts";
 
-import { allowsTool } from "./authorization.ts";
-
 let runtime: PluginRuntime;
-const activeTurn = new AsyncLocalStorage<{ account: Account; chat: Chat; messageUid: string; senderId: string; isOwner: boolean; deliveryUnknown?: boolean; replyDelivered?: boolean }>();
+const activeTurn = new AsyncLocalStorage<{ account: Account; chat: Chat; messageUid: string; deliveryUnknown?: boolean; replyDelivered?: boolean }>();
 
 async function requestWithDeliveryState<T>(account: Account, path: string, body: unknown): Promise<T> {
   const turn = activeTurn.getStore();
@@ -22,10 +20,10 @@ async function requestWithDeliveryState<T>(account: Account, path: string, body:
   }
 }
 
-async function send(account: Account, to: string, text: string, mediaUrls: string[] = [], ownerSend = false) {
+async function send(account: Account, to: string, text: string, mediaUrls: string[] = [], explicitSend = false) {
   const turn = activeTurn.getStore();
   // Detached sends validate the destination, not who initiated the operation.
-  if (turn && !ownerSend) {
+  if (turn && !explicitSend) {
     if (turn.chat.uid !== to || turn.account.accountId !== account.accountId) throw new Error("Plow sends must stay in the current conversation");
   } else if (!accepts(account, await request<Chat>(account, `/chats/${to}`))) {
     throw new Error("Plow account does not serve this conversation");
@@ -78,8 +76,7 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
     media,
   });
   log(`turn ${JSON.stringify({ chat: chat.uid, message: message.uid, first_contact: firstContact, senderId, senderName, senderIsOwner: chat.participants.some(p => p.type === "member" && p.uid === senderId && p.role === "owner"), sessionKey: route.sessionKey })}`);
-  const isOwner = chat.participants.some(p => p.type === "member" && p.uid === senderId && p.role === "owner");
-  return await activeTurn.run({ account, chat, messageUid: message.uid, senderId, isOwner }, async () => {
+  return await activeTurn.run({ account, chat, messageUid: message.uid }, async () => {
     let failure: unknown;
     let completed = false;
     if (account.accountId === "chat") await request(account, `/chats/${chat.uid}/typing`, { action: "start" }).catch(() => log("typing start failed"));
@@ -142,7 +139,7 @@ export default defineChannelPluginEntry({
   registerCapabilities(api) {
     api.registerTool(context => ({
       name: "plow_start_thread", label: "Start a Plow group thread",
-      description: "Start a group text on your own Plow line with the owner and the supplied phone numbers. Owner-only, even in trusted chats. Sends the first message and returns the chat uid; use plow_send_message for follow-ups. Use these Plow tools instead of message, conversations_send or sessions_* for Plow chats. Accepts phone numbers, not chat ids or email addresses.",
+      description: "Start a group text on your own Plow line with the owner and the supplied phone numbers. Sends the first message and returns the chat uid; use plow_send_message for follow-ups. Use these Plow tools instead of message, conversations_send or sessions_* for Plow chats. Accepts phone numbers, not chat ids or email addresses.",
       parameters: {
         type: "object", required: ["members", "body"], additionalProperties: false,
         properties: {
@@ -173,7 +170,7 @@ export default defineChannelPluginEntry({
     }));
     api.registerTool(context => ({
       name: "plow_send_message", label: "Send to a Plow chat",
-      description: "Send a message to an existing chat this Plow account serves, including a thread returned by plow_start_thread. Owner-only, even in trusted chats. Use this instead of message, conversations_send or sessions_* for Plow chats. Success confirms only the returned message was sent.",
+      description: "Send a message to an existing chat this Plow account serves, including a thread returned by plow_start_thread. Use this instead of message, conversations_send or sessions_* for Plow chats. Success confirms only the returned message was sent.",
       parameters: {
         type: "object", required: ["chat_uid", "body"], additionalProperties: false,
         properties: {
@@ -192,11 +189,5 @@ export default defineChannelPluginEntry({
         return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
       },
     }));
-    api.on("before_tool_call", (_event, context) => {
-      const allowed = allowsTool(activeTurn.getStore(), context);
-      api.logger.info(`plow tool ${JSON.stringify({ tool: context.toolName, requester: context.requester ?? null, channelId: context.channelId, allowed })}`);
-      if (!allowed) return { block: true, blockReason: context.toolName === "read" || context.toolName === "exec" || context.toolName === "plow_start_thread" || context.toolName === "plow_send_message"
-        ? "This tool requires the owner." : "Tools require the owner or a trusted conversation." };
-    });
   },
 });
