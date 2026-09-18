@@ -5,11 +5,10 @@ import { onDiagnosticEvent, waitForDiagnosticEventsDrained } from "openclaw/plug
 import { loadWebMedia } from "openclaw/plugin-sdk/web-media";
 import { request, listen, accepts, HttpError, DeliveryUnknownError, type Account, type Chat, type Message, type TurnOutcome } from "./transport.ts";
 
-import { TurnAuthorization } from "./authorization.ts";
+import { allowsTool } from "./authorization.ts";
 
 let runtime: PluginRuntime;
-const authorization = new TurnAuthorization();
-const activeTurn = new AsyncLocalStorage<{ account: Account; chat: Chat; messageUid: string; deliveryUnknown?: boolean; replyDelivered?: boolean }>();
+const activeTurn = new AsyncLocalStorage<{ account: Account; chat: Chat; messageUid: string; senderId: string; isOwner: boolean; deliveryUnknown?: boolean; replyDelivered?: boolean }>();
 
 async function requestWithDeliveryState<T>(account: Account, path: string, body: unknown): Promise<T> {
   const turn = activeTurn.getStore();
@@ -79,7 +78,8 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
     media,
   });
   log(`turn ${JSON.stringify({ chat: chat.uid, message: message.uid, first_contact: firstContact, senderId, senderName, senderIsOwner: chat.participants.some(p => p.type === "member" && p.uid === senderId && p.role === "owner"), sessionKey: route.sessionKey })}`);
-  return await authorization.run(chat, senderId, () => activeTurn.run({ account, chat, messageUid: message.uid }, async () => {
+  const isOwner = chat.participants.some(p => p.type === "member" && p.uid === senderId && p.role === "owner");
+  return await activeTurn.run({ account, chat, messageUid: message.uid, senderId, isOwner }, async () => {
     let failure: unknown;
     let completed = false;
     let recoveryDuplicate = false;
@@ -115,7 +115,7 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
       unsubscribe();
       if (account.accountId === "chat") await request(account, `/chats/${chat.uid}/typing`, { action: "stop" }).catch(() => log("typing stop failed"));
     }
-  }));
+  });
 }
 
 const plugin: ChannelPlugin<Account> = {
@@ -169,7 +169,7 @@ export default defineChannelPluginEntry({
         const turn = activeTurn.getStore();
         if (!turn) throw new Error("Starting a thread requires an active message");
         const members = [...new Set([owner.provider_key, ...args.members])].sort();
-        const idempotencyKey = createHash("sha256").update(JSON.stringify([account.lineUid, turn.messageUid])).digest("hex");
+        const idempotencyKey = createHash("sha256").update(JSON.stringify([account.lineUid, turn.messageUid, members, args.body])).digest("hex");
         const chat = await requestWithDeliveryState<{ uid: string }>(account, "/chats", {
           line_uid: account.lineUid, members,
           body: args.body, trusted: false, idempotency_key: idempotencyKey,
@@ -201,7 +201,7 @@ export default defineChannelPluginEntry({
       },
     }));
     api.on("before_tool_call", (_event, context) => {
-      const allowed = authorization.allows(context);
+      const allowed = allowsTool(activeTurn.getStore(), context);
       api.logger.info(`plow tool ${JSON.stringify({ tool: context.toolName, requester: context.requester ?? null, channelId: context.channelId, allowed })}`);
       if (!allowed) return { block: true, blockReason: context.toolName === "read" || context.toolName === "exec" || context.toolName === "plow_start_thread" || context.toolName === "plow_send_message"
         ? "This tool requires the owner." : "Tools require the owner or a trusted conversation." };

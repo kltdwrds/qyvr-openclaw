@@ -1,23 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createRequire } from "node:module";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import entry from "../plugin/index.ts";
+import { websocketFixture } from "./ws-fixture.ts";
 
-const { WebSocketServer } = createRequire(new URL("../plugin/package.json", import.meta.url))("ws");
 type Tool = { name: string; execute: (id: string, args: object) => Promise<unknown> };
 
 for (const toolName of ["plow_start_thread", "plow_send_message"]) {
   for (const status of [200, 403, 408, 424, 503, "network"] as const) test(`${toolName}: per-turn delivery state, status=${status}`, async t => {
-    const root = await mkdtemp(`${tmpdir()}/plow-thread-`);
-    process.env.OPENCLAW_STATE_DIR = root;
-    process.env.PLOW_AGENT_TOKEN = "test-token";
-    const server = new WebSocketServer({ port: 0 });
-    await new Promise<void>(resolve => server.on("listening", resolve));
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2000);
-    const account = { apiBase: `http://127.0.0.1:${server.address().port}`, accountId: "chat", lineUid: "line", homeChatUid: "home" };
+    const { server, apiBase, abortAfter } = await websocketFixture(t);
+    const controller = abortAfter();
+    const account = { apiBase, accountId: "chat", lineUid: "line", homeChatUid: "home" };
     const cfg = { channels: { plow: account } };
     const sender = { type: "member", uid: "owner", role: "owner", provider_key: "+15550000001" };
     const chat = { uid: "home", status: "active", participants: [sender, { type: "agent", relationship: "self", line: { uid: "line" } }] };
@@ -46,8 +38,8 @@ for (const toolName of ["plow_start_thread", "plow_send_message"]) {
       registerTool(factory: (context: object) => Tool) { const candidate = factory({ config: cfg }); if (candidate.name === toolName) tool = candidate; },
       runtime: { channel: { routing: { resolveAgentRoute: () => ({ sessionKey: "main" }) }, inbound: {
         buildContext: async () => ({}), dispatch: async () => {
-          for (let retry = 0; retry < 2; retry++) {
-            try { results.push(await tool.execute(`call-${retry}`, { members: ["+15550000002", "+15550000001"], chat_uid: "home", body: "Meet Friday?" })); }
+          for (let retry = 0; retry < 4; retry++) {
+            try { results.push(await tool.execute(`call-${retry}`, { members: retry === 3 ? ["+15550000003"] : retry === 1 ? ["+15550000001", "+15550000002"] : ["+15550000002", "+15550000001"], chat_uid: "home", body: retry === 2 ? "Meet Saturday?" : "Meet Friday?" })); }
             catch (error) { errors.push((error as Error).message); }
           }
           if (++turns === 2) controller.abort();
@@ -55,32 +47,25 @@ for (const toolName of ["plow_start_thread", "plow_send_message"]) {
         },
       } } },
     });
-    try {
-      await channel!.gateway.startAccount({ account, cfg, abortSignal: controller.signal, log: { info() {} } });
-      assert.equal(turns, 2);
-      assert.equal(posts.length, status === 200 || status === 403 ? 4 : 2);
-      if (status === 200) {
-        assert.equal(results.length, 4);
-        if (toolName === "plow_start_thread") {
-          assert.deepEqual(posts[0].members, ["+15550000001", "+15550000002"]);
-          assert.equal(posts[0].trusted, false);
-          assert.equal(posts[0].line_uid, "line");
-          assert.equal(posts[0].body, "Meet Friday?");
-          assert.equal(posts[0].idempotency_key, posts[1].idempotency_key);
-          assert.equal(posts[2].idempotency_key, posts[3].idempotency_key);
-          assert.notEqual(posts[0].idempotency_key, posts[2].idempotency_key);
-          assert.deepEqual((results[0] as { details: unknown }).details, { chat_uid: "created", message_sent: true });
-        }
-      } else {
-        assert.equal(results.length, 0);
-        assert.equal(errors.length, 4);
-        assert.ok(errors.every(error => status === 403 ? error.includes("HTTP 403") : error.includes("delivery is unknown")));
+    await channel!.gateway.startAccount({ account, cfg, abortSignal: controller.signal, log: { info() {} } });
+    assert.equal(turns, 2);
+    assert.equal(posts.length, status === 200 || status === 403 ? 8 : 2);
+    if (status === 200) {
+      assert.equal(results.length, 8);
+      if (toolName === "plow_start_thread") {
+        assert.deepEqual(posts[0].members, ["+15550000001", "+15550000002"]);
+        assert.equal(posts[0].trusted, false);
+        assert.equal(posts[0].line_uid, "line");
+        assert.equal(posts[0].body, "Meet Friday?");
+        assert.equal(posts[0].idempotency_key, posts[1].idempotency_key);
+        assert.equal(posts[4].idempotency_key, posts[5].idempotency_key);
+        assert.equal(new Set(posts.map(post => post.idempotency_key)).size, 6);
+        assert.deepEqual((results[0] as { details: unknown }).details, { chat_uid: "created", message_sent: true });
       }
-    } finally {
-      clearTimeout(timeout);
-      for (const socket of server.clients) socket.terminate();
-      await new Promise<void>(resolve => server.close(resolve));
-      await rm(root, { recursive: true });
+    } else {
+      assert.equal(results.length, 0);
+      assert.equal(errors.length, 8);
+      assert.ok(errors.every(error => status === 403 ? error.includes("HTTP 403") : error.includes("delivery is unknown")));
     }
   });
 }

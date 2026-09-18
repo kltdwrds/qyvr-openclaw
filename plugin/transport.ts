@@ -112,6 +112,22 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
     let heartbeat: ReturnType<typeof setInterval> | undefined;
     const abort = () => socket?.terminate();
     try {
+      const { ticket } = await request<{ ticket: string }>(account, "/ws/ticket", {});
+      socket = new WebSocket(`${account.apiBase.replace(/^http/, "ws")}/v1/ws?ticket=${encodeURIComponent(ticket)}`);
+      let unauthorized = false;
+      socket.on("unexpected-response", (_request, response) => socket!.emit("error", new HttpError(response.statusCode!)));
+      socket.on("close", code => { unauthorized = code === 4401; });
+      const frames = on(socket, "message", { signal, close: ["close"] });
+      signal.addEventListener("abort", abort, { once: true });
+      await once(socket, "open", { signal });
+      attempt = 0;
+      log(`connected account=${account.accountId}`);
+      let alive = true;
+      socket.on("pong", () => { alive = true; });
+      heartbeat = setInterval(() => {
+        if (!alive) socket!.terminate();
+        else { alive = false; socket!.ping(); }
+      }, 30_000);
       const listing = await request<Page<Chat>>(account, "/chats");
       if (listing.has_more) throw new Error("Plow chat listing is truncated");
       const chats = listing.data.filter(chat => accepts(account, chat));
@@ -132,22 +148,6 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
           checkpoints.set(chat.uid, checkpoint);
         }
       }
-      const { ticket } = await request<{ ticket: string }>(account, "/ws/ticket", {});
-      socket = new WebSocket(`${account.apiBase.replace(/^http/, "ws")}/v1/ws?ticket=${encodeURIComponent(ticket)}`);
-      let unauthorized = false;
-      socket.on("unexpected-response", (_request, response) => socket!.emit("error", new HttpError(response.statusCode!)));
-      socket.on("close", code => { unauthorized = code === 4401; });
-      const frames = on(socket, "message", { signal, close: ["close"] });
-      signal.addEventListener("abort", abort, { once: true });
-      await once(socket, "open", { signal });
-      attempt = 0;
-      log(`connected account=${account.accountId}`);
-      let alive = true;
-      socket.on("pong", () => { alive = true; });
-      heartbeat = setInterval(() => {
-        if (!alive) socket!.terminate();
-        else { alive = false; socket!.ping(); }
-      }, 30_000);
       // Keep cursor advancement ordered, including frames buffered during recovery.
       if (account.accountId === "chat") {
         for (const chat of chats) {

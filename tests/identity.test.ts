@@ -5,9 +5,6 @@ import { test } from "node:test";
 import { identityFromApi } from "../boot/identity.ts";
 
 for (const status of [0, 429, 503]) test(`home wait tolerates repeated transient identity failures: ${status}`, async t => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  syncBuiltinESMExports();
-  t.after(() => { t.mock.timers.reset(); syncBuiltinESMExports(); });
   let calls = 0;
   const identity = { line: { uid: "line" }, chats: [] };
   t.mock.method(globalThis, "fetch", async () => {
@@ -16,10 +13,7 @@ for (const status of [0, 429, 503]) test(`home wait tolerates repeated transient
     return new Response(null, { status });
   });
   for (let poll = 0; poll < 12; poll++) {
-    const pending = identityFromApi("http://fixture", "test-token", true);
-    const check = assert.doesNotReject(async () => assert.equal(await pending, undefined));
-    for (let retry = 0; retry < 10; retry++) { await setImmediate(); t.mock.timers.tick(3_000); }
-    await check;
+    assert.equal(await identityFromApi("http://fixture", "test-token", true), undefined);
     assert.equal(calls, poll + 1);
   }
   assert.deepEqual(await identityFromApi("http://fixture", "test-token", true), identity);
