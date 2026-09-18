@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { test } from "node:test";
 import { renderPrompt } from "../boot/prompt.ts";
 
-const prompt = "# Plow assistant\n";
+const prompt = await readFile(new URL("../prompt/AGENTS.md", import.meta.url), "utf8");
 
 test("no Mac leaves the prompt unchanged", async () => {
   assert.equal(await renderPrompt(prompt, null, "test-token"), prompt);
@@ -42,6 +43,7 @@ for (const format of ["json", "sse", "oversized", "missing", "invalid", "unavail
       assert.equal(rendered, ["json", "sse", "oversized"].includes(format)
         ? `${prompt}\nInstructions from your owner's Mac through Latch (up to 8,000 characters):\n\n\`\`\`text\n${expectedInstructions}\n\`\`\`\n`
         : prompt);
+      assert.ok(rendered.length <= 20_000, "workspace instructions fit the per-file context cap");
       assert.equal(requests, 1);
     } finally {
       await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

@@ -30,8 +30,8 @@ try {
       .catch(error => { if (error.code !== "EEXIST") throw error; });
   }
   await mkdir("/var/lib/plow/workspace", { recursive: true });
-  const prompt = await readFile("/opt/plow/prompt/instructions.md", "utf8");
-  await writeFile("/var/lib/plow/workspace/SOUL.md", await renderPrompt(prompt, identity.mcp_url, process.env.PLOW_AGENT_TOKEN));
+  const prompt = await readFile("/opt/plow/prompt/AGENTS.md", "utf8");
+  await writeFile("/var/lib/plow/workspace/AGENTS.md", await renderPrompt(prompt, identity.mcp_url, process.env.PLOW_AGENT_TOKEN));
   await writeFile("/var/lib/plow/openclaw.json", JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
   console.log(`plow-boot: identity resolved to ${config.channels.plow.ownerChatUid}`);
   startGateway();
