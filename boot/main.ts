@@ -20,7 +20,7 @@ try {
       console.log("plow-boot: waiting for the first text in the owner's chat");
       nextLog = Date.now() + 3_600_000;
     }
-    await sleep(5_000);
+    await sleep(1_000);
     identity = await identityFromApi(base, process.env.PLOW_AGENT_TOKEN, true) ?? identity;
   }
   const config = renderConfig(identity, base);
