@@ -3,7 +3,7 @@
 This image runs OpenClaw on Plow's cloud host or locally with Docker. You talk to
 it on a Plow phone line. It can reply in group threads and its own email threads,
 start groups and send follow-ups for the owner, and use the owner's Mac through
-Latch, Plow’s Mac app that the owner installs. It uses `moonshotai/kimi-k2.5` through Plow.
+Latch, Plow’s Mac app that the owner installs. It uses `z-ai/glm-5.2` through Plow, with `anthropic/claude-sonnet-5` as fallback.
 
 ## Run it
 

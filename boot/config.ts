@@ -32,13 +32,13 @@ export function renderConfig(identity: Identity, apiBase: string) {
       baseUrl: `${apiBase}/v1`, apiKey: "${PLOW_AGENT_TOKEN}", api: "openai-completions", authHeader: true,
       request: { allowPrivateNetwork: true },
       models: [
-        { id: "moonshotai/kimi-k2.5", name: "Kimi K2.5", contextWindow: 262144, cost: { input: 0.45, output: 2.25 } },
-        { id: "openai/gpt-5.6-luna", name: "GPT-5.6 Luna", contextWindow: 1050000, cost: { input: 0.20, output: 1.20 } },
+        { id: "z-ai/glm-5.2", name: "GLM 5.2", contextWindow: 1048576, cost: { input: 0.5544, output: 1.7424 } },
+        { id: "anthropic/claude-sonnet-5", name: "Claude Sonnet 5", contextWindow: 1000000, cost: { input: 2.00, output: 10.00 } },
       ],
     } } },
     agents: { defaults: {
       workspace: "/var/lib/plow/workspace",
-      model: { primary: "plow/moonshotai/kimi-k2.5", fallbacks: ["plow/openai/gpt-5.6-luna"] }, sandbox: { mode: "off" },
+      model: { primary: "plow/z-ai/glm-5.2", fallbacks: ["plow/anthropic/claude-sonnet-5"] }, sandbox: { mode: "off" },
     } },
     ...(identity.mcp_url ? { mcp: { servers: { plow: {
       command: "node", args: ["/opt/plow/boot/mcp-bridge.js"],
@@ -55,6 +55,7 @@ export function renderConfig(identity: Identity, apiBase: string) {
     memory: { search: { rememberAcrossConversations: false } },
     // An empty allowlist means unrestricted in OpenClaw.
     skills: { load: { extraDirs: ["/opt/plow/skills"] }, allowBundled: ["plow-no-bundled-skills"] },
-    tools: { profile: "messaging", sessions: { visibility: "tree" }, alsoAllow: ["read", "exec", "plow_start_thread"], deny: ["ask_user"] },
+    // Keep workspace and durable memory writes local instead of routing them through the Mac relay.
+    tools: { profile: "messaging", sessions: { visibility: "tree" }, alsoAllow: ["read", "write", "edit", "exec", "plow_start_thread"], deny: ["ask_user"] },
   };
 }
