@@ -99,6 +99,27 @@ on and redirects are refused; local rigs can use a plain HTTP relay origin.
 Boot also fetches the Mac's MCP instructions for the prompt because the pinned
 native client does not include them. An unavailable Mac does not prevent texting.
 
+## Security
+
+This agent does not isolate hostile users. Anyone the owner trusts in a
+conversation can use its tools, including reaching the owner's Mac. Only trust
+conversations whose participants you trust.
+
+Best-effort protections: group turns use their own conversation history, omit
+root MEMORY.md, and do not automatically recall other conversations. Native
+session tools cannot read unrelated conversations from a group; the owner's
+main session retains access. Untrusted non-owner turns carry no tools; the owner
+retains tools in any conversation. Ordinary replies stay in their source
+conversation; explicit sends can target other served conversations. Participant
+phone-number fields are not added to the roster prompt, but display names and
+message text can contain phone numbers. Shared files and trusted tools are not
+privacy boundaries.
+
+Cross-conversation recall is disabled for everyone. The pinned release scopes
+recall by agent and private conversation, not by owner identity. The owner keeps
+history within each conversation but loses automatic recall from separate
+conversations.
+
 ## Layout
 
 | Path | Purpose |

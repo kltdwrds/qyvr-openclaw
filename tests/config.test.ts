@@ -101,6 +101,10 @@ test("phone turns cannot block on ask_user", () => {
 
 test("native messaging replaces the bespoke send tool", () => {
   assert.deepEqual(renderConfig(identity, "http://api:8000").tools, {
-    profile: "messaging", alsoAllow: ["read", "exec", "plow_start_thread"], deny: ["ask_user"],
+    profile: "messaging", sessions: { visibility: "tree" }, alsoAllow: ["read", "exec", "plow_start_thread"], deny: ["ask_user"],
   });
+});
+
+test("private transcript recall is disabled across isolated conversations", () => {
+  assert.equal(renderConfig(identity, "http://api:8000").memory.search.rememberAcrossConversations, false);
 });

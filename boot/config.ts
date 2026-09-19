@@ -49,9 +49,9 @@ export function renderConfig(identity: Identity, apiBase: string) {
     session: { dmScope: "per-account-channel-peer", groupScope: "per-group" },
     bindings: [{ agentId: "main", match: { channel: "plow", accountId: "chat", peer: { kind: "direct", id: owner.uid } }, session: { dmScope: "main" } }],
     commands: { ownerAllowFrom: [owner.uid] },
-    memory: { search: { rememberAcrossConversations: true } },
+    memory: { search: { rememberAcrossConversations: false } },
     // An empty allowlist means unrestricted in OpenClaw.
     skills: { load: { extraDirs: ["/opt/plow/skills"] }, allowBundled: ["plow-no-bundled-skills"] },
-    tools: { profile: "messaging", alsoAllow: ["read", "exec", "plow_start_thread"], deny: ["ask_user"] },
+    tools: { profile: "messaging", sessions: { visibility: "tree" }, alsoAllow: ["read", "exec", "plow_start_thread"], deny: ["ask_user"] },
   };
 }
