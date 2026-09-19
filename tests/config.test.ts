@@ -52,12 +52,17 @@ test("provider and optional MCP use environment references, never credential val
   assert.equal(renderConfig(identity, "http://api:8000").mcp, undefined);
 });
 
-test("Kimi uses the bare Plow model id and explicit capacity and pricing", () => {
+test("Kimi falls back to Luna on the Plow provider with explicit capacity and pricing", () => {
   const config = renderConfig(identity, "http://api:8000");
-  assert.equal(config.agents.defaults.model.primary, "plow/moonshotai/kimi-k2.5");
+  assert.deepEqual(config.agents.defaults.model, {
+    primary: "plow/moonshotai/kimi-k2.5", fallbacks: ["plow/openai/gpt-5.6-luna"],
+  });
   assert.deepEqual(config.models.providers.plow.models, [{
     id: "moonshotai/kimi-k2.5", name: "Kimi K2.5", contextWindow: 262144,
     cost: { input: 0.45, output: 2.25 },
+  }, {
+    id: "openai/gpt-5.6-luna", name: "GPT-5.6 Luna", contextWindow: 1050000,
+    cost: { input: 0.20, output: 1.20 },
   }]);
 });
 

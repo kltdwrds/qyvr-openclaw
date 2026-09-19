@@ -31,11 +31,14 @@ export function renderConfig(identity: Identity, apiBase: string) {
     models: { providers: { plow: {
       baseUrl: `${apiBase}/v1`, apiKey: "${PLOW_AGENT_TOKEN}", api: "openai-completions", authHeader: true,
       request: { allowPrivateNetwork: true },
-      models: [{ id: "moonshotai/kimi-k2.5", name: "Kimi K2.5", contextWindow: 262144, cost: { input: 0.45, output: 2.25 } }],
+      models: [
+        { id: "moonshotai/kimi-k2.5", name: "Kimi K2.5", contextWindow: 262144, cost: { input: 0.45, output: 2.25 } },
+        { id: "openai/gpt-5.6-luna", name: "GPT-5.6 Luna", contextWindow: 1050000, cost: { input: 0.20, output: 1.20 } },
+      ],
     } } },
     agents: { defaults: {
       workspace: "/var/lib/plow/workspace",
-      model: { primary: "plow/moonshotai/kimi-k2.5" }, sandbox: { mode: "off" },
+      model: { primary: "plow/moonshotai/kimi-k2.5", fallbacks: ["plow/openai/gpt-5.6-luna"] }, sandbox: { mode: "off" },
     } },
     ...(identity.mcp_url ? { mcp: { servers: { plow: {
       command: "node", args: ["/opt/plow/boot/mcp-bridge.js"],
