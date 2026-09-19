@@ -82,8 +82,7 @@ chat uid as `target`, and the text as `message`. Existing email conversations us
 with `plow:`; names and phone numbers are not resolved. Every destination must
 be active and served by the selected account. Groups opened by the agent are
 trusted. Each message uses the fetched chat roster and trust flag: owner and trusted
-chat turns have no additional tool restriction; untrusted non-owner turns receive a
-native deny-all tool policy. Ordinary text replies still work. `ask_user` is disabled:
+chat turns act normally; other turns use the model's judgment about purpose and authority. Ordinary text replies still work. `ask_user` is disabled:
 clarifying questions are ordinary replies that end the turn.
 
 Detached sends, including restart delivery, are allowed to active chats the account
@@ -108,8 +107,8 @@ conversations whose participants you trust.
 Best-effort protections: group turns use their own conversation history, omit
 root MEMORY.md, and do not automatically recall other conversations. Native
 session tools cannot read unrelated conversations from a group; the owner's
-main session retains access. Untrusted non-owner turns carry no tools; the owner
-retains tools in any conversation. Ordinary replies stay in their source
+main session retains access. Every turn retains its tools; the model judges
+authority from the conversation and the owner's instructions. Ordinary replies stay in their source
 conversation; explicit sends can target other served conversations. Participant
 phone-number fields are not added to the roster prompt, but display names and
 message text can contain phone numbers. Shared files and trusted tools are not

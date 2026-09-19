@@ -5,7 +5,7 @@ import { loadWebMedia } from "openclaw/plugin-sdk/web-media";
 import { request, listen, accepts, HttpError, DeliveryUnknownError, type Account, type Chat, type Message, type TurnOutcome } from "./transport.ts";
 
 let runtime: PluginRuntime;
-const activeTurn = new AsyncLocalStorage<{ chat: Chat; messageUid: string; deliveryUnknown?: boolean; replyDelivered?: boolean }>();
+const activeTurn = new AsyncLocalStorage<{ chat: Chat; messageUid: string; senderId: string; senderIsOwner: boolean; deliveryUnknown?: boolean; replyDelivered?: boolean }>();
 
 async function requestWithDeliveryState<T>(account: Account, path: string, body: unknown): Promise<T> {
   const turn = activeTurn.getStore();
@@ -46,7 +46,6 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
   const sender = message.sender;
   const senderId = sender.type === "member" ? sender.uid : sender.line.uid;
   const senderIsOwner = sender.type === "member" && chat.participants.some(p => p.type === "member" && p.uid === senderId && p.role === "owner");
-  const toolsEnabled = senderIsOwner || chat.trusted;
   const senderName = sender.type === "member" ? sender.display_name : sender.line.display_name;
   const kind = account.accountId === "email" || chat.participants.length === 2 ? "direct" : "group";
   const peer = { kind, id: kind === "direct" ? senderId : chat.uid };
@@ -68,7 +67,6 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
   const roster = JSON.stringify({ first_contact: firstContact, trusted: chat.trusted, participants });
   const ctxPayload = await runtime.channel.inbound.buildContext({
     channel: "plow", accountId: account.accountId, messageId: message.uid, timestamp: Date.parse(message.created_at),
-    access: { toolPolicy: toolsEnabled ? undefined : { deny: ["*"] } },
     from: senderId, sender: { id: senderIsOwner ? String(cfg.commands!.ownerAllowFrom![0]) : senderId, name: senderName, isBot: sender.type === "agent" },
     conversation: { kind, id: chat.uid, label: chat.display_name, routePeer: peer },
     route: { ...route, routeSessionKey: route.sessionKey }, reply: { to: chat.uid, replyToId: message.reply_to?.uid },
@@ -77,14 +75,14 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
     media,
   });
   log(`turn ${JSON.stringify({ chat: chat.uid, message: message.uid, first_contact: firstContact, senderId, senderName, senderIsOwner, sessionKey: route.sessionKey })}`);
-  return await activeTurn.run({ chat, messageUid: message.uid }, async () => {
+  return await activeTurn.run({ chat, messageUid: message.uid, senderId, senderIsOwner }, async () => {
     let failure: unknown;
     let completed = false;
     if (account.accountId === "chat") await request(account, `/chats/${chat.uid}/typing`, { action: "start" }).catch(() => log("typing start failed"));
     try {
       const result = await runtime.channel.inbound.dispatch({
         cfg, channel: "plow", accountId: account.accountId, route, ctxPayload,
-        replyOptions: { disableTools: !toolsEnabled, onAgentRunTerminalOutcome: outcome => { completed = outcome === "completed"; if (!completed) failure = new Error("Agent turn failed"); } },
+        replyOptions: { onAgentRunTerminalOutcome: outcome => { completed = outcome === "completed"; if (!completed) failure = new Error("Agent turn failed"); } },
         delivery: {
           observeMessageSent: true,
           deliver: async payload => {
@@ -143,6 +141,14 @@ export default defineChannelPluginEntry({
     if (api.registrationMode === "full") api.logger.info("plow channel registered");
   },
   registerCapabilities(api) {
+    api.on("after_tool_call", event => {
+      const turn = activeTurn.getStore();
+      api.logger.info(`plow tool ${JSON.stringify({
+        tool: event.toolName, chat: turn?.chat.uid ?? null, trusted: turn?.chat.trusted ?? null,
+        sender: turn?.senderId ?? null, senderIsOwner: turn?.senderIsOwner ?? null,
+        outcome: event.error ? "error" : "returned",
+      })}`);
+    });
     api.registerTool(context => ({
       name: "plow_start_thread", label: "Start a Plow group thread",
       description: "Start a group text on your own Plow line with the owner and the supplied phone numbers. Sends the first message and returns the chat uid; use message with action send, channel plow, accountId chat and that uid as target for follow-ups. Accepts phone numbers, not chat ids or email addresses.",

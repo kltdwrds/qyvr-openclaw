@@ -3,7 +3,7 @@ import { test } from "node:test";
 import entry from "../plugin/index.ts";
 import { websocketFixture } from "./ws-fixture.ts";
 
-for (const kind of ["group", "direct", "email"]) for (const role of ["owner", "member"]) for (const trusted of [false, true]) test(`roster identity and tool policy preserve routing: ${kind}, ${role}, trusted=${trusted}`, async t => {
+for (const kind of ["group", "direct", "email"]) for (const role of ["owner", "member"]) for (const trusted of [false, true]) test(`roster identity preserves routing without restricting tools: ${kind}, ${role}, trusted=${trusted}`, async t => {
   const { server, apiBase, abortAfter } = await websocketFixture(t);
   const controller = abortAfter();
   const account = { apiBase, accountId: kind === "email" ? "email" : "chat", lineUid: "line", emailLineUid: "line" };
@@ -17,14 +17,18 @@ for (const kind of ["group", "direct", "email"]) for (const role of ["owner", "m
   type Peer = { kind: string; id: string };
   let routingPeer: Peer | undefined;
   let toolsDisabled: boolean | undefined;
+  const observations: string[] = [];
+  let observe: (event: { toolName: string; error?: string }) => unknown;
   let context: { access?: { toolPolicy?: { deny: string[] } }; from: string; sender: { id: string }; conversation: { id: string; routePeer: Peer }; message: { bodyForAgent: string } } | undefined;
   let channel: { gateway: { startAccount: (context: object) => Promise<void> } } | undefined;
-  entry.register({ registrationMode: "full", registerTool() {}, logger: { info() {} }, on() {},
+  entry.register({ registrationMode: "full", registerTool() {}, logger: { info(text: string) { observations.push(text); } },
+    on(name: string, handler: typeof observe) { if (name === "after_tool_call") observe = handler; },
     registerChannel(value: { plugin: typeof channel }) { channel = value.plugin; },
     runtime: { channel: {
       routing: { resolveAgentRoute: ({ peer }: { peer: Peer }) => { routingPeer = peer; return { sessionKey: "unchanged" }; } },
       inbound: { buildContext: async (value: typeof context) => { context = value; return {}; }, dispatch: async ({ replyOptions }: { replyOptions: { disableTools?: boolean } }) => {
         toolsDisabled = replyOptions.disableTools;
+        for (const error of [undefined, "host error"]) assert.equal(observe({ toolName: "fixture", error }), undefined);
         controller.abort(); return { dispatched: true, dispatchResult: { deliberateSilentTerminalReply: true } };
       } },
     } },
@@ -33,8 +37,15 @@ for (const kind of ["group", "direct", "email"]) for (const role of ["owner", "m
   await channel.gateway.startAccount({ account, cfg: { commands: { ownerAllowFrom: ["canonical-owner"] } }, abortSignal: controller.signal, log: { info() {} } });
   assert.ok(context);
   assert.equal(context.sender.id, role === "owner" ? "canonical-owner" : "local-sender");
-  assert.deepEqual(context.access?.toolPolicy, role === "owner" || trusted ? undefined : { deny: ["*"] });
-  assert.equal(toolsDisabled, !(role === "owner" || trusted));
+  assert.deepEqual(context.access?.toolPolicy, undefined);
+  assert.equal(toolsDisabled, undefined);
+  const facts = JSON.parse(context.message.bodyForAgent.split("```json\n")[1].split("\n```")[0]);
+  assert.equal(facts.trusted, trusted);
+  assert.equal(facts.participants[0].role, role);
+  const records = observations.filter(text => text.startsWith("plow tool ")).map(text => JSON.parse(text.slice(10)));
+  assert.deepEqual(records, ["returned", "error"].map(outcome => ({
+    tool: "fixture", chat: "chat", trusted, sender: "local-sender", senderIsOwner: role === "owner", outcome,
+  })));
   assert.equal(context.from, "local-sender");
   assert.equal(context.conversation.id, "chat");
   const peer = { kind: kind === "group" ? "group" : "direct", id: kind === "group" ? "chat" : "local-sender" };

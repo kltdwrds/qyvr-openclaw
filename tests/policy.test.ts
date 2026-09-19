@@ -64,7 +64,7 @@ test("start-thread returns a tool error without config and makes no request", as
 
 for (const accountId of ["chat", "email"]) for (const status of [200, 403, 503, "unserved", "inactive"] as const) test(`native send checks account reach and reports only confirmed sends: ${accountId}, ${status}`, async t => {
   let channel: { outbound: { sendText: (context: object) => Promise<unknown> } };
-  entry.register({ registrationMode: "full", runtime: {}, registerTool() {}, logger: { info() {} },
+  entry.register({ registrationMode: "full", runtime: {}, registerTool() {}, logger: { info() {} }, on() {},
     registerChannel(value: { plugin: typeof channel }) { channel = value.plugin; } });
   process.env.PLOW_AGENT_TOKEN = "test-token";
   const posts: unknown[] = [];
@@ -85,7 +85,7 @@ for (const accountId of ["chat", "email"]) for (const status of [200, 403, 503, 
 
 test("native targets preserve opaque UID case and reject names and non-chat IDs", () => {
   let channel: { messaging: { normalizeTarget: (raw: string) => string | undefined; targetResolver: { looksLikeId: (raw: string, normalized?: string) => boolean } } };
-  entry.register({ registrationMode: "full", runtime: {}, registerTool() {}, logger: { info() {} },
+  entry.register({ registrationMode: "full", runtime: {}, registerTool() {}, logger: { info() {} }, on() {},
     registerChannel(value: { plugin: typeof channel }) { channel = value.plugin; } });
   const uid = "cht_AbCdef0123456789_-XyZqw";
   for (const target of [uid, `plow:${uid}`, `  plow:${uid}  `]) {
