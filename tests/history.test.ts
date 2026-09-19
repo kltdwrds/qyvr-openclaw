@@ -23,7 +23,7 @@ test("a new group turn receives its outbound opener once, in chronological conte
   entry.register({ registrationMode: "full", registerTool() {}, logger: { info() {} }, on() {},
     registerChannel(value: { plugin: typeof channel }) { channel = value.plugin; },
     runtime: { channel: {
-      routing: { resolveAgentRoute: () => ({ sessionKey: "group" }) },
+      routing: { resolveAgentRoute: () => ({ agentId: "main", sessionKey: "group" }) },
       inbound: {
         buildContext: async (value: typeof contexts[number]) => { contexts.push(value); return {}; },
         dispatch: async ({ replyOptions }: { replyOptions: { onAgentRunTerminalOutcome: (outcome: string) => void } }) => {
@@ -34,7 +34,7 @@ test("a new group turn receives its outbound opener once, in chronological conte
       },
     } },
   });
-  await channel!.gateway.startAccount({ account: { apiBase, accountId: "chat", lineUid: "line" }, cfg: {}, abortSignal: controller.signal });
+  await channel!.gateway.startAccount({ account: { apiBase, accountId: "chat", lineUid: "line" }, cfg: { agents: { entries: { main: { identity: { name: "Juniper" } } } } }, abortSignal: controller.signal });
   assert.equal(contexts.length, 2);
   assert.deepEqual(contexts[0].message.inboundHistory, [
     { sender: "Guest", body: "Let's plan lunch", timestamp: Date.parse(opener.created_at), messageId: "older" },
@@ -44,5 +44,5 @@ test("a new group turn receives its outbound opener once, in chronological conte
   assert.deepEqual(fetch.mock.calls.map(call => String(call.arguments[0])).filter(url => url.includes("/messages?")),
     [`${apiBase}/v1/chats/group/messages?limit=20&starting_after=reply`]);
   const facts = JSON.parse(contexts[0].message.bodyForAgent.split("```json\n")[1].split("\n```")[0]);
-  assert.deepEqual(facts.participants[0], { type: "agent", role: "self" });
+  assert.deepEqual(facts.participants[0], { name: "Juniper", type: "agent", role: "self" });
 });

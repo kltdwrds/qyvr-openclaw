@@ -6,7 +6,7 @@ import { renderConfig } from "../boot/config.ts";
 const require = createRequire(new URL("../plugin/package.json", import.meta.url));
 const { createAgentToAgentPolicy, createSessionVisibilityRowChecker, resolveSessionToolsVisibility } =
   await import(require.resolve("openclaw/plugin-sdk/session-visibility"));
-const config = renderConfig({ line: { uid: "line" }, chats: [{
+const config = renderConfig({ agent: { name: "Juniper" }, line: { uid: "line" }, chats: [{
   uid: "owner-chat", status: "active", participants: [
     { type: "agent", relationship: "self", line: { uid: "line" } },
     { type: "member", uid: "owner", role: "owner" },

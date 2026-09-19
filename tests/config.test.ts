@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { renderConfig, findOwnerChat, type Identity } from "../boot/config.ts";
 
 const identity: Identity = {
+  agent: { name: "Juniper" },
   line: { uid: "ln_phone" },
   chats: [{ uid: "cht_home", status: "active", participants: [
     { type: "agent", relationship: "self", line: { uid: "ln_phone" } },
@@ -112,4 +113,14 @@ test("native messaging retains local workspace and memory file tools", () => {
 
 test("private transcript recall is disabled across isolated conversations", () => {
   assert.equal(renderConfig(identity, "http://api:8000").memory.search.rememberAcrossConversations, false);
+});
+
+
+test("the API agent name configures the assistant identity", () => {
+  const config = renderConfig(identity, "http://api:8000");
+  assert.deepEqual(config.agents.entries, { main: { identity: { name: "Juniper" } } });
+});
+
+for (const name of [undefined, null, "", "  "]) test(`missing agent name is not invented: ${JSON.stringify(name)}`, () => {
+  assert.throws(() => renderConfig({ ...identity, agent: { name } }, "http://api:8000"), /no usable agent.name/);
 });

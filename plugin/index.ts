@@ -61,7 +61,7 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
   }
   const body = message.body || (account.accountId === "email" ? "[Email attachments are not supported.]" : "[Attachment]");
   const participants = chat.participants.map(p => ({
-    ...(p.type === "agent" && p.relationship === "self" ? {} : { name: (p.type === "member" ? p.display_name : p.line.display_name) || "unnamed member" }),
+    ...(p.type === "agent" && p.relationship === "self" ? { name: cfg.agents?.entries?.[route.agentId]?.identity?.name } : { name: (p.type === "member" ? p.display_name : p.line.display_name) || "unnamed member" }),
     type: p.type, role: p.type === "member" ? p.role : p.relationship,
   }));
   const roster = JSON.stringify({ first_contact: firstContact, trusted: chat.trusted, participants });

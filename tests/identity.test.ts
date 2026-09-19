@@ -48,3 +48,12 @@ for (const body of ["null", "{}"])
     t.mock.method(globalThis, "fetch", async () => new Response(body));
     await assert.rejects(identityFromApi("http://fixture", "test-token", true), TypeError);
   });
+
+
+test("boot uses the identity endpoint that includes agent.name", async t => {
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    assert.equal(url, "http://fixture/v1/agents/me");
+    return Response.json({ agent: { name: "Juniper" }, line: { uid: "line" }, chats: [] });
+  });
+  assert.equal((await identityFromApi("http://fixture", "test-token", true))?.agent?.name, "Juniper");
+});

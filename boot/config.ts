@@ -2,6 +2,7 @@ export type Participant =
   | { type: "member"; uid: string; role: string }
   | { type: "agent"; relationship: string; line: { uid: string; provider_type?: string } };
 export type Identity = {
+  agent?: { name?: string | null };
   line: { uid: string };
   chats: { uid: string; status: string; participants: Participant[] }[];
   mcp_url?: string | null;
@@ -24,6 +25,8 @@ export function renderConfig(identity: Identity, apiBase: string) {
   if (owner?.type !== "member" || !owner.uid || !ownerChat.uid || !identity.line.uid) {
     throw new Error("Identity is missing the owner's chat, line or owner uid");
   }
+  const name = identity.agent?.name;
+  if (typeof name !== "string" || !name.trim()) throw new Error(`Identity has no usable agent.name: ${JSON.stringify(name)}`);
   const email = identity.chats.flatMap(chat => chat.participants).find(p =>
     p.type === "agent" && p.relationship === "self" && p.line.provider_type === "email");
   return {
@@ -36,7 +39,7 @@ export function renderConfig(identity: Identity, apiBase: string) {
         { id: "anthropic/claude-sonnet-5", name: "Claude Sonnet 5", contextWindow: 1000000, cost: { input: 2.00, output: 10.00 } },
       ],
     } } },
-    agents: { defaults: {
+    agents: { entries: { main: { identity: { name } } }, defaults: {
       workspace: "/var/lib/plow/workspace",
       model: { primary: "plow/z-ai/glm-5.2", fallbacks: ["plow/anthropic/claude-sonnet-5"] }, sandbox: { mode: "off" },
     } },

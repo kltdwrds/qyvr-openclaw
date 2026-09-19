@@ -7,7 +7,7 @@ export async function identityFromApi(base: string, token: string, waiting = fal
   for (;;) {
     let response: Response;
     try {
-      response = await fetch(`${base}/v1/agents/cloud/me`, {
+      response = await fetch(`${base}/v1/agents/me`, {
         headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000),
       });
     } catch {
