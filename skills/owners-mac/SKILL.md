@@ -6,9 +6,11 @@ description: Look up the owner's messages, mail, calendar, contacts, files, brow
 
 Your session history records what happened through you, not the owner's whole
 life. Their Mac holds their messages, files, accounts and earlier agents' work.
-Before saying there is no record, use the connected Plow MCP server to discover
-and read the Mac's relevant skill. Use the actual exposed tool names, which may
-be server-prefixed. Follow the skill's exact command and arguments in this turn.
+This owners-mac skill is already loaded locally; the Mac's skill-reading tool
+reads only Mac-published skills, not this image's local skills. Before saying
+there is no record, list the Mac's skills, then read a relevant listed skill
+using the actual exposed tool names, which may be server-prefixed.
+Follow that skill's exact command and arguments in this turn.
 For mail and calendar, also follow the local google-workspace skill.
 
 Missing tools, server errors or a disconnected Mac can mean a temporary

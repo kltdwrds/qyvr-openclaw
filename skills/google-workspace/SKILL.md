@@ -5,9 +5,10 @@ description: Use Gmail and Google Calendar through the owner's connected Mac, fo
 # Google Workspace
 
 This image holds no Google OAuth credentials. Do not set up local OAuth.
-Use the connected Plow MCP server's skill-discovery and skill-reading tools to
-find and read the owner's Mac google-workspace skill. Tool names may be prefixed
-by the server; use the names actually exposed to you. Follow that skill's exact
+This google-workspace skill is already loaded locally; the Mac's skill-reading
+tool reads only Mac-published skills, not this image's local skills. List the
+Mac's skills first, then read its listed Google Workspace skill using the actual
+exposed tool names, which may be server-prefixed. Follow that skill's exact
 commands and arguments instead of guessing them.
 
 Owner-account mail goes out as the owner. Obtain their authorization before
