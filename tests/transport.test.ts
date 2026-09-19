@@ -211,7 +211,7 @@ test("a new chat's message arriving during listing is buffered by the socket", a
       }));
       return Response.json({ data: [], has_more: false });
     }
-    return Response.json(url.endsWith(`/chats/${chat.uid}`) ? chat : { ticket: "ticket" });
+    return Response.json(url.endsWith(`/chats/${chat.uid}`) ? chat : url.includes("/messages?") ? { data: [], has_more: false } : { ticket: "ticket" });
   });
   const received: string[] = [];
   await listen({ ...account, apiBase, lineUid: "line" }, controller.signal, () => {}, async (_chat, message) => {

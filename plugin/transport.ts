@@ -59,13 +59,14 @@ export async function recover(account: Account, chat: string, checkpoint: string
   }
 }
 
-export async function listen(account: Account, signal: AbortSignal, log: (text: string) => void, turn: (chat: Chat, message: Message, firstContact: boolean) => Promise<TurnOutcome>) {
+export async function listen(account: Account, signal: AbortSignal, log: (text: string) => void, turn: (chat: Chat, message: Message, firstContact: boolean, history: Message[]) => Promise<TurnOutcome>) {
   const root = process.env.OPENCLAW_STATE_DIR;
   if (!root) throw new Error("OPENCLAW_STATE_DIR is required");
   const dir = `${root}/plow-checkpoints`;
   await mkdir(dir, { recursive: true });
   const checkpoints = new Map<string, string>();
   const seen = new Set<string>();
+  const contextualized = new Set<string>();
   let attempt = 0;
   const remember = (id: string) => {
     seen.add(id);
@@ -86,7 +87,9 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       try {
         const checkpoint = checkpoints.get(chat.uid);
         const firstContact = account.accountId === "chat" && chat.uid === account.ownerChatUid && (checkpoint === "" || checkpoint === `first:${message.uid}`);
-        outcome = await turn(chat, message, firstContact);
+        const history = contextualized.has(chat.uid) ? [] : (await request<Page<Message>>(account, `/chats/${chat.uid}/messages?limit=20&starting_after=${message.uid}`)).data.reverse();
+        outcome = await turn(chat, message, firstContact, history);
+        contextualized.add(chat.uid);
       }
       catch (error) {
         if (error instanceof DeliveryUnknownError) {
@@ -127,6 +130,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       signal.addEventListener("abort", abort, { once: true });
       await once(socket, "open", { signal });
       attempt = 0;
+      contextualized.clear();
       log(`connected account=${account.accountId}`);
       let alive = true;
       socket.on("pong", () => { alive = true; });

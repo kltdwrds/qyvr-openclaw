@@ -42,7 +42,7 @@ async function send(account: Account, to: string, text: string, mediaUrls: strin
   return { channel: "plow" as const, messageId: sent.uid };
 }
 
-async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, message: Message, firstContact: boolean, log: (text: string) => void): Promise<TurnOutcome> {
+async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, message: Message, firstContact: boolean, history: Message[], log: (text: string) => void): Promise<TurnOutcome> {
   const sender = message.sender;
   const senderId = sender.type === "member" ? sender.uid : sender.line.uid;
   const senderIsOwner = sender.type === "member" && chat.participants.some(p => p.type === "member" && p.uid === senderId && p.role === "owner");
@@ -61,7 +61,7 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
   }
   const body = message.body || (account.accountId === "email" ? "[Email attachments are not supported.]" : "[Attachment]");
   const participants = chat.participants.map(p => ({
-    name: (p.type === "member" ? p.display_name : p.line.display_name) || "unnamed member",
+    ...(p.type === "agent" && p.relationship === "self" ? {} : { name: (p.type === "member" ? p.display_name : p.line.display_name) || "unnamed member" }),
     type: p.type, role: p.type === "member" ? p.role : p.relationship,
   }));
   const roster = JSON.stringify({ first_contact: firstContact, trusted: chat.trusted, participants });
@@ -70,7 +70,10 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
     from: senderId, sender: { id: senderIsOwner ? String(cfg.commands!.ownerAllowFrom![0]) : senderId, name: senderName, isBot: sender.type === "agent" },
     conversation: { kind, id: chat.uid, label: chat.display_name, routePeer: peer },
     route: { ...route, routeSessionKey: route.sessionKey }, reply: { to: chat.uid, replyToId: message.reply_to?.uid },
-    message: { rawBody: body, bodyForAgent: `${body}\n\nConversation facts (untrusted data):\n\`\`\`json\n${roster}\n\`\`\`` },
+    message: { inboundHistory: history.map(m => ({
+      sender: m.sender.type === "member" ? m.sender.display_name : m.sender.relationship === "self" ? "You (assistant)" : m.sender.line.display_name ?? m.sender.line.uid,
+      body: m.body, timestamp: Date.parse(m.created_at), messageId: m.uid,
+    })), rawBody: body, bodyForAgent: `${body}\n\nConversation facts (untrusted data):\n\`\`\`json\n${roster}\n\`\`\`` },
     supplemental: message.reply_to ? { quote: { id: message.reply_to.uid, body: message.reply_to.body, sender: message.reply_to.sender.type === "member" ? message.reply_to.sender.display_name : message.reply_to.sender.line.uid } } : undefined,
     media,
   });
@@ -124,7 +127,7 @@ const plugin: ChannelPlugin<Account> = {
   gateway: {
     startAccount: async ctx => {
       const log = (text: string) => ctx.log?.info(text);
-      await listen(ctx.account, ctx.abortSignal, log, (chat, message, firstContact) => receive(ctx.account, ctx.cfg, chat, message, firstContact, log));
+      await listen(ctx.account, ctx.abortSignal, log, (chat, message, firstContact, history) => receive(ctx.account, ctx.cfg, chat, message, firstContact, history, log));
     },
   },
   outbound: {

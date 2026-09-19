@@ -61,7 +61,7 @@ for (const trusted of [false, true]) for (const outcome of ["aborted", "failed",
   assert.deepEqual(facts.participants, [
     { name: "Owner", type: "member", role: "owner" },
     { name: "Member", type: "member", role: "member" },
-    { name: "unnamed member", type: "agent", role: "self" },
+    { type: "agent", role: "self" },
   ]);
   assert.equal(await readFile(`${root}/plow-checkpoints/chat`, "utf8"), ["aborted", "failed", "empty", "native-other"].includes(outcome) ? "first:inbound" : "inbound");
 });
