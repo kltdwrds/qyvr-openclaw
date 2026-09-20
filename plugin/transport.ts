@@ -24,17 +24,43 @@ export class DeliveryUnknownError extends Error {
   constructor() { super("Plow delivery is unknown; stopped to avoid resending"); }
 }
 
-export async function request<T>(account: Account, path: string, body?: unknown): Promise<T> {
+export async function request<T>(account: Pick<Account, "apiBase">, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const token = process.env.PLOW_AGENT_TOKEN;
   if (!token) throw new Error("PLOW_AGENT_TOKEN is required");
   const response = await fetch(`${account.apiBase}/v1${path}`, {
     method: body === undefined ? "GET" : "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    signal: AbortSignal.timeout(10_000),
+    signal: signal ?? AbortSignal.timeout(10_000),
   });
   if (!response.ok) throw new HttpError(response.status);
   return await response.json() as T;
+}
+
+// Socket activity only accelerates polling; identity remains the authority.
+export async function waitForActivity(apiBase: string, interval = 1_000) {
+  const started = performance.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), interval);
+  let socket: WebSocket | undefined;
+  try {
+    const { ticket } = await request<{ ticket: string }>({ apiBase }, "/ws/ticket", {}, controller.signal);
+    socket = new WebSocket(`${apiBase.replace(/^http/, "ws")}/v1/ws?ticket=${encodeURIComponent(ticket)}`);
+    for await (const [raw] of on(socket, "message", { signal: controller.signal, close: ["close"] })) {
+      try { if (JSON.parse(raw.toString()).type === "connected") continue; } catch {}
+      return;
+    }
+  } catch { /* Socket failures still owe the remaining poll interval. */ }
+  finally {
+    clearTimeout(timer);
+    if (socket && socket.readyState !== WebSocket.CLOSED) {
+      const closed = new Promise<void>(resolve => socket!.once("close", () => resolve()));
+      socket.on("error", () => {});
+      socket.terminate();
+      await closed;
+    }
+  }
+  await delay(Math.max(0, interval - (performance.now() - started)));
 }
 
 export function accepts(account: Account, chat: Chat): boolean {

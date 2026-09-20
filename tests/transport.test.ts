@@ -248,3 +248,29 @@ for (const count of [1, 2]) for (const arrival of ["listing", "baseline"] as con
   assert.deepEqual(received, messages.slice(1).map(message => message.uid));
   assert.equal(await readFile(`${root}/plow-checkpoints/group`, "utf8"), messages.at(-1)!.uid);
 });
+
+for (const mode of ["event", "malformed", "quiet", "closed", "ticket-failed", "ticket-hung"] as const)
+  test(`first-contact wake keeps polling reliable: ${mode}`, async t => {
+    const { server, apiBase } = await websocketFixture(t);
+    const { waitForActivity } = await import("../plugin/transport.ts");
+    let socketClosed = false;
+    t.mock.method(globalThis, "fetch", async (_url: string, init?: RequestInit) => {
+      if (mode === "ticket-hung") await new Promise((_resolve, reject) => init!.signal!.addEventListener("abort", () => reject(new Error("aborted"))));
+      return Response.json({ ticket: "ticket" }, { status: mode === "ticket-failed" ? 503 : 200 });
+    });
+    server.on("connection", (socket: { send: (text: string) => void; close: () => void; on: (event: string, fn: () => void) => void }) => {
+      socket.on("close", () => { socketClosed = true; });
+      socket.send(JSON.stringify({ type: "connected" }));
+      if (mode === "event") socket.send(JSON.stringify({ event_type: "anything" }));
+      if (mode === "malformed") socket.send("not JSON");
+      if (mode === "closed") socket.close();
+    });
+    const started = performance.now();
+    await waitForActivity(apiBase, 500);
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed < 1500, `wait bounded: ${elapsed}ms`);
+    if (["event", "malformed"].includes(mode)) assert.ok(elapsed < 400, `frame wakes: ${elapsed}ms`);
+    else assert.ok(elapsed >= 480, `failure/handshake preserves interval: ${elapsed}ms`);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    if (!mode.startsWith("ticket-")) assert.equal(socketClosed, true);
+  });

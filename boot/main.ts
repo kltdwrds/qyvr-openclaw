@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
-import { setTimeout as sleep } from "node:timers/promises";
+import { waitForActivity } from "../plugin/dist/transport.js";
 import { renderConfig, findOwnerChat } from "./config.js";
 import { identityFromApi } from "./identity.js";
 import { renderPrompt } from "./prompt.js";
@@ -20,7 +20,7 @@ try {
       console.log("plow-boot: waiting for the first text in the owner's chat");
       nextLog = Date.now() + 3_600_000;
     }
-    await sleep(1_000);
+    await waitForActivity(base);
     identity = await identityFromApi(base, process.env.PLOW_AGENT_TOKEN, true) ?? identity;
   }
   const config = renderConfig(identity, base);
