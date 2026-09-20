@@ -14,7 +14,7 @@ for (const toolName of ["plow_start_thread", "message"]) {
     const sender = { type: "member", uid: "owner", role: "owner", provider_key: "+15550000001" };
     const chat = { uid: "home", status: "active", participants: [sender, { type: "agent", relationship: "self", line: { uid: "line" } }] };
     const posts: Record<string, unknown>[] = [];
-    const results: unknown[] = [], errors: string[] = [];
+    const results: unknown[] = [], errors: string[] = [], logs: string[] = [];
     t.mock.method(globalThis, "fetch", async (url: string, options: RequestInit) => {
       if (options.method === "POST" && (url.endsWith("/chats") || url.endsWith("/messages"))) {
         posts.push(JSON.parse(options.body as string));
@@ -47,7 +47,7 @@ for (const toolName of ["plow_start_thread", "message"]) {
         },
       } } },
     });
-    await channel!.gateway.startAccount({ account, cfg, abortSignal: controller.signal, log: { info() {} } });
+    await channel!.gateway.startAccount({ account, cfg, abortSignal: controller.signal, log: { info(text: string) { logs.push(text); } } });
     assert.equal(turns, 2);
     assert.equal(posts.length, status === 200 || status === 403 ? 8 : 2);
     if (status === 200) {
@@ -66,6 +66,8 @@ for (const toolName of ["plow_start_thread", "message"]) {
       assert.equal(results.length, 0);
       assert.equal(errors.length, 8);
       assert.ok(errors.every(error => status === 403 ? error.includes("HTTP 403") : error.includes("delivery is unknown")));
+      if (status !== 403) for (const uid of ["first-request", "later-identical-request"])
+        assert.ok(logs.some(text => text.startsWith(`turn failed chat=home message=${uid}: delivery unknown`)));
     }
   });
 }

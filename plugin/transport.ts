@@ -120,7 +120,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       catch (error) {
         if (error instanceof DeliveryUnknownError) {
           // The provider may have accepted it; advance rather than replay a send.
-          log(`delivery unknown chat=${chat.uid} message=${message.uid}; not resending`);
+          log(`turn failed chat=${chat.uid} message=${message.uid}: delivery unknown; reply suppressed, acknowledging without resending`);
           outcome = "completed";
         } else log(`turn failed chat=${chat.uid} message=${message.uid}: ${(error as Error).name}`);
       }
