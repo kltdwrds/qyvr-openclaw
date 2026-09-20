@@ -6,7 +6,7 @@ import { setImmediate } from "node:timers/promises";
 import { test } from "node:test";
 import { startGateway } from "../boot/process.ts";
 
-for (const ending of ["gateway", "bridge", "signal", "startup-failure"] as const) test(`supervisor closes both children: ${ending}`, async t => {
+for (const ending of ["gateway", "bridge", "signal", "startup-failure", "restart-shutdown"] as const) test(`supervisor handles child exit: ${ending}`, async t => {
   const previousCode = process.exitCode;
   const listeners = process.listenerCount("SIGTERM");
   const children: (EventEmitter & { kill: (signal: string) => void; signals: string[] })[] = [];
@@ -15,24 +15,36 @@ for (const ending of ["gateway", "bridge", "signal", "startup-failure"] as const
   t.mock.method(childProcess, "spawn", (_command: string, args: string[], opts: SpawnOptions) => {
     const child = Object.assign(new EventEmitter(), { signals: [] as string[], kill(signal: string) { this.signals.push(signal); queueMicrotask(() => this.emit("close", null, signal)); } });
     children.push(child); options.push(opts);
-    if (args[0].endsWith("mcp-bridge.js")) queueMicrotask(() => ending === "startup-failure" ? child.emit("close", 1, null) : child.emit("message", "ready"));
+    if (args[0].endsWith("mcp-bridge.js")) queueMicrotask(() => ending === "startup-failure" && children.length === 1 ? (child.emit("error", new Error("spawn failed")), child.emit("close", -2, null)) : child.emit("message", "ready"));
     return child;
   });
   syncBuiltinESMExports();
-  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); process.exitCode = previousCode; });
+  t.after(() => { process.emit("SIGTERM"); t.mock.restoreAll(); syncBuiltinESMExports(); process.exitCode = previousCode; });
   const starting = startGateway(true, "https://relay/mcp");
   assert.equal(children.length, 1, "gateway waits for bridge readiness");
-  if (ending === "startup-failure") {
-    await assert.rejects(starting, /closed before readiness/);
-    assert.equal(children.length, 1);
+  assert.equal(await starting, children[1]);
+  assert.deepEqual(Object.keys(options[0].env!).sort(), ["PLOW_AGENT_TOKEN", "PLOW_MCP_URL"]);
+  if (ending === "bridge" || ending === "startup-failure") {
+    if (ending === "bridge") children[0].emit("close", null, "SIGKILL");
+    assert.deepEqual(children[1].signals, [], "bridge death must not stop the gateway");
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    assert.equal(children.length, 3, "boot restarts the bridge");
+    assert.deepEqual(children[1].signals, [], "gateway survives the restart");
+    process.emit("SIGTERM");
+    await setImmediate();
+    assert.deepEqual(children[2].signals, ["SIGTERM"]);
+  } else if (ending === "restart-shutdown") {
+    children[0].emit("close", 1, null);
+    process.emit("SIGTERM");
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    assert.equal(children.length, 2, "shutdown cancels a pending bridge restart");
+    assert.deepEqual(children[1].signals, ["SIGTERM"]);
   } else {
-    assert.equal(await starting, children[1]);
-    assert.deepEqual(Object.keys(options[0].env!).sort(), ["PLOW_AGENT_TOKEN", "PLOW_MCP_URL"]);
     if (ending === "signal") process.emit("SIGTERM");
-    else children[ending === "gateway" ? 1 : 0].emit("close", ending === "gateway" ? 0 : 1, null);
+    else children[1].emit("close", 0, null);
     await setImmediate();
     assert.ok(children[ending === "gateway" ? 0 : 1].signals.includes("SIGTERM"));
   }
   assert.equal(process.listenerCount("SIGTERM"), listeners);
-  assert.equal(process.exitCode, ending === "bridge" || ending === "startup-failure" ? 1 : previousCode);
+  assert.equal(process.exitCode, previousCode);
 });

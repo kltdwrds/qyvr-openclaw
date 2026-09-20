@@ -95,7 +95,8 @@ OpenClaw. Every session uses that bridge; idle MCP runtimes expire after five
 minutes. The bridge forwards requests to the identity-provided relay with the
 environment bearer, preserving JSON, SSE and HTTP status responses without
 retrying calls. TLS verification remains on and redirects are refused. Boot
-stops both processes when either exits. It also fetches the Mac's MCP
+restarts the bridge after an exit without stopping the gateway; gateway exit or
+shutdown stops both. It also fetches the Mac's MCP
 instructions for the prompt because the pinned native client does not include
 them. An unavailable Mac does not prevent texting.
 
