@@ -13,7 +13,7 @@ if ([process.env.PLOW_AGENT_TOKEN, process.env.OPENCLAW_GATEWAY_TOKEN].some(toke
   throw new Error("Token leaked into rendered config");
 }
 await writeFile("/var/lib/plow/openclaw.json", serialized + "\n", { mode: 0o600 });
-const child = startGateway(true);
+const child = await startGateway(true);
 let succeeded = false;
 let timedOut = false;
 const timeout = setTimeout(() => {

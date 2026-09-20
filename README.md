@@ -90,13 +90,14 @@ serves; absence of an active turn does not establish who initiated the send.
 The host observes direct replies and native sends through `message_sent`.
 The group-opening tool returns an API receipt and logs creation.
 
-For Latch, OpenClaw launches a small Node stdio MCP bridge. The bridge forwards
-JSON-RPC to the identity-provided relay with the environment bearer and translates
-JSON or SSE responses back to stdio. This lets the relay use a private host
-address without OpenClaw's HTTP SSRF guard blocking it. TLS verification remains
-on and redirects are refused; local rigs can use a plain HTTP relay origin.
-Boot also fetches the Mac's MCP instructions for the prompt because the pinned
-native client does not include them. An unavailable Mac does not prevent texting.
+For Latch, boot supervises one HTTP MCP bridge on `127.0.0.1:18790` alongside
+OpenClaw. Every session uses that bridge; idle MCP runtimes expire after five
+minutes. The bridge forwards requests to the identity-provided relay with the
+environment bearer, preserving JSON, SSE and HTTP status responses without
+retrying calls. TLS verification remains on and redirects are refused. Boot
+stops both processes when either exits. It also fetches the Mac's MCP
+instructions for the prompt because the pinned native client does not include
+them. An unavailable Mac does not prevent texting.
 
 ## Security
 

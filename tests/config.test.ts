@@ -49,7 +49,7 @@ test("provider and optional MCP use environment references, never credential val
   assert.equal(config.models.providers.plow.apiKey, "${PLOW_AGENT_TOKEN}");
   assert.equal(config.models.providers.plow.baseUrl, "http://api:8000/v1");
   assert.equal(config.gateway.auth.token, "${OPENCLAW_GATEWAY_TOKEN}");
-  assert.equal(config.mcp?.servers.plow.env.PLOW_AGENT_TOKEN, "${PLOW_AGENT_TOKEN}");
+  assert.equal(config.mcp?.servers.plow.url, "http://127.0.0.1:18790/mcp");
   assert.equal(renderConfig(identity, "http://api:8000").mcp, undefined);
 });
 
@@ -72,11 +72,10 @@ test("the configured Plow provider permits an operator-controlled private endpoi
   assert.equal(config.models.providers.plow.request.allowPrivateNetwork, true);
 });
 
-test("the Plow MCP server uses the stdio bridge with environment credentials", () => {
+test("MCP sessions share the loopback bridge and expire after five idle minutes", () => {
   const config = renderConfig({ ...identity, mcp_url: "https://relay.internal/mcp" }, "http://api:8000");
-  assert.deepEqual(config.mcp, { servers: { plow: {
-    command: "node", args: ["/opt/plow/boot/mcp-bridge.js"],
-    env: { PLOW_MCP_URL: "https://relay.internal/mcp", PLOW_AGENT_TOKEN: "${PLOW_AGENT_TOKEN}" },
+  assert.deepEqual(config.mcp, { sessionIdleTtlMs: 300_000, servers: { plow: {
+    url: "http://127.0.0.1:18790/mcp", transport: "streamable-http",
   } } });
 });
 
@@ -85,19 +84,6 @@ test("no owner chat is pending; malformed and ambiguous identities are refused",
   assert.equal(findOwnerChat(identity)?.uid, "cht_home");
   assert.throws(() => findOwnerChat({ ...identity, line: { uid: "" }, chats: [] }), /line/);
   assert.throws(() => findOwnerChat({ ...identity, chats: [...identity.chats, ...identity.chats] }), /found 2/);
-});
-
-
-test("MCP config does not inherit a host CA override", () => {
-  const original = process.env.NODE_EXTRA_CA_CERTS;
-  process.env.NODE_EXTRA_CA_CERTS = "/test-rig/ca.crt";
-  try {
-    const config = renderConfig({ ...identity, mcp_url: "http://relay/mcp" }, "http://api:8000");
-    assert.ok(!("NODE_EXTRA_CA_CERTS" in config.mcp!.servers.plow.env));
-  } finally {
-    if (original === undefined) delete process.env.NODE_EXTRA_CA_CERTS;
-    else process.env.NODE_EXTRA_CA_CERTS = original;
-  }
 });
 
 

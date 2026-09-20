@@ -43,9 +43,8 @@ export function renderConfig(identity: Identity, apiBase: string) {
       workspace: "/var/lib/plow/workspace",
       model: { primary: "plow/z-ai/glm-5.2", fallbacks: ["plow/anthropic/claude-sonnet-5"] }, sandbox: { mode: "off" },
     } },
-    ...(identity.mcp_url ? { mcp: { servers: { plow: {
-      command: "node", args: ["/opt/plow/boot/mcp-bridge.js"],
-      env: { PLOW_MCP_URL: identity.mcp_url, PLOW_AGENT_TOKEN: "${PLOW_AGENT_TOKEN}" },
+    ...(identity.mcp_url ? { mcp: { sessionIdleTtlMs: 300_000, servers: { plow: {
+      url: "http://127.0.0.1:18790/mcp", transport: "streamable-http",
     } } } } : {}),
     plugins: { load: { paths: ["/opt/plow/plugin"] }, entries: { plow: { enabled: true } } },
     channels: { plow: {
