@@ -1,17 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
+import { probeIdentity } from "./probe-fixture.js";
 import { renderConfig } from "./config.js";
 import { startGateway } from "./process.js";
 
 process.env.PLOW_AGENT_TOKEN = "probe-" + randomBytes(16).toString("hex");
 process.env.OPENCLAW_GATEWAY_TOKEN = randomBytes(32).toString("hex");
-const config = renderConfig({
-  line: { uid: "ln_probe" },
-  chats: [{ uid: "cht_probe", status: "active", participants: [
-    { type: "agent", relationship: "self", line: { uid: "ln_probe" } },
-    { type: "member", uid: "mem_probe", role: "owner" },
-  ] }],
-}, "http://127.0.0.1:1");
+const config = renderConfig(probeIdentity, "http://127.0.0.1:1");
 await mkdir("/var/lib/plow/workspace", { recursive: true });
 const serialized = JSON.stringify(config, null, 2);
 if ([process.env.PLOW_AGENT_TOKEN, process.env.OPENCLAW_GATEWAY_TOKEN].some(token => serialized.includes(token))) {
