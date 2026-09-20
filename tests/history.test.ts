@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readFile } from "node:fs/promises";
 import entry from "../plugin/index.ts";
 import { websocketFixture } from "./ws-fixture.ts";
 
-test("a new group turn receives its outbound opener once, in chronological context", async t => {
-  const { server, apiBase, abortAfter } = await websocketFixture(t);
+test("a checkpointed outbound opener still seeds the first group turn", async t => {
+  const { root, server, apiBase, abortAfter } = await websocketFixture(t);
   const controller = abortAfter();
   const self = { type: "agent", relationship: "self", line: { uid: "line", display_name: "Willow" } };
   const sender = { type: "member", uid: "member", role: "member", display_name: "Guest" };
@@ -15,7 +16,7 @@ test("a new group turn receives its outbound opener once, in chronological conte
     url.endsWith("/chats") ? { data: [], has_more: false } : url.endsWith("/chats/group") ? chat :
     url.includes("/messages?") ? { data: [opener, message("older", "Let's plan lunch")], has_more: true } : { ticket: "ticket" }));
   server.on("connection", (socket: { send: (text: string) => void }) => {
-    for (const msg of [message("reply", "Let's do 12:45"), message("thanks", "Thanks")])
+    for (const msg of [opener, message("reply", "Let's do 12:45"), message("thanks", "Thanks")])
       socket.send(JSON.stringify({ event_type: "message_received", event_id: msg.uid, chat_id: chat.uid, data: { message: msg } }));
   });
   const contexts: { message: { bodyForAgent: string; inboundHistory?: unknown[] } }[] = [];
@@ -25,7 +26,10 @@ test("a new group turn receives its outbound opener once, in chronological conte
     runtime: { channel: {
       routing: { resolveAgentRoute: () => ({ agentId: "main", sessionKey: "group" }) },
       inbound: {
-        buildContext: async (value: typeof contexts[number]) => { contexts.push(value); return {}; },
+        buildContext: async (value: typeof contexts[number]) => {
+          if (!contexts.length) assert.equal(await readFile(`${root}/plow-checkpoints/group`, "utf8"), "opener");
+          contexts.push(value); return {};
+        },
         dispatch: async ({ replyOptions }: { replyOptions: { onAgentRunTerminalOutcome: (outcome: string) => void } }) => {
           replyOptions.onAgentRunTerminalOutcome("completed");
           if (contexts.length === 2) controller.abort();
