@@ -55,8 +55,8 @@ The boot process does not read a credential file itself.
 
 Boot fetches the agent's identity, including its line, chats and optional MCP
 relay URL. If the owner's direct chat does not exist yet, it waits for the first
-text. A pending first message sent before boot is also processed. Existing
-answered history is baselined, and restarts do not send a greeting.
+text, polling identity once a second. A pending first message sent before boot
+is also processed. Existing answered history is baselined, and restarts do not send a greeting.
 
 Boot renders OpenClaw configuration and the workspace prompt under
 `/var/lib/plow`, which Compose persists. The config uses environment references
@@ -91,8 +91,10 @@ The host observes direct replies and native sends through `message_sent`.
 The group-opening tool returns an API receipt and logs creation.
 
 For Latch, boot supervises one HTTP MCP bridge on `127.0.0.1:18790` alongside
-OpenClaw. Every session uses that bridge; idle MCP runtimes expire after five
-minutes. The bridge forwards requests to the identity-provided relay with the
+OpenClaw. Boot generates a fresh shared secret for the bridge and configures
+OpenClaw to send it in the Authorization header. Unauthenticated requests are
+rejected before reaching the relay. Every session uses that bridge; idle MCP
+runtimes expire after five minutes. The bridge forwards requests to the identity-provided relay with the
 environment bearer, preserving JSON, SSE and HTTP status responses without
 retrying calls. TLS verification remains on and redirects are refused. Boot
 restarts the bridge after an exit without stopping the gateway; gateway exit or

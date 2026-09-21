@@ -37,32 +37,6 @@ export async function request<T>(account: Pick<Account, "apiBase">, path: string
   return await response.json() as T;
 }
 
-// Socket activity only accelerates polling; identity remains the authority.
-export async function waitForActivity(apiBase: string, interval = 1_000) {
-  const started = performance.now();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), interval);
-  let socket: WebSocket | undefined;
-  try {
-    const { ticket } = await request<{ ticket: string }>({ apiBase }, "/ws/ticket", {}, controller.signal);
-    socket = new WebSocket(`${apiBase.replace(/^http/, "ws")}/v1/ws?ticket=${encodeURIComponent(ticket)}`);
-    for await (const [raw] of on(socket, "message", { signal: controller.signal, close: ["close"] })) {
-      try { if (JSON.parse(raw.toString()).type === "connected") continue; } catch {}
-      return;
-    }
-  } catch { /* Socket failures still owe the remaining poll interval. */ }
-  finally {
-    clearTimeout(timer);
-    if (socket && socket.readyState !== WebSocket.CLOSED) {
-      const closed = new Promise<void>(resolve => socket!.once("close", () => resolve()));
-      socket.on("error", () => {});
-      socket.terminate();
-      await closed;
-    }
-  }
-  await delay(Math.max(0, interval - (performance.now() - started)));
-}
-
 export function accepts(account: Account, chat: Chat): boolean {
   const line = account.accountId === "email" ? account.emailLineUid : account.lineUid;
   return chat.status === "active" && chat.participants.some(p => p.type === "agent" && p.relationship === "self" && p.line.uid === line);

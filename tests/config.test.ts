@@ -76,6 +76,7 @@ test("MCP sessions share the loopback bridge and expire after five idle minutes"
   const config = renderConfig({ ...identity, mcp_url: "https://relay.internal/mcp" }, "http://api:8000");
   assert.deepEqual(config.mcp, { sessionIdleTtlMs: 300_000, servers: { plow: {
     url: "http://127.0.0.1:18790/mcp", transport: "streamable-http",
+    headers: { Authorization: "Bearer ${PLOW_MCP_BRIDGE_TOKEN}" },
   } } });
 });
 

@@ -40,7 +40,7 @@ export async function startGateway(captureOutput = false, mcpUrl?: string) {
   };
   const startBridge = () => launch("bridge", ["/opt/plow/boot/mcp-bridge.js"], {
     stdio: ["ignore", "inherit", "inherit", "ipc"],
-    env: { PLOW_MCP_URL: mcpUrl!, PLOW_AGENT_TOKEN: process.env.PLOW_AGENT_TOKEN },
+    env: { PLOW_MCP_URL: mcpUrl!, PLOW_AGENT_TOKEN: process.env.PLOW_AGENT_TOKEN, PLOW_MCP_BRIDGE_TOKEN: process.env.PLOW_MCP_BRIDGE_TOKEN },
   });
   if (mcpUrl) {
     const bridge = startBridge();

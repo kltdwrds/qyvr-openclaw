@@ -24,13 +24,22 @@ for (const mode of ["json", "sse", "failure", "expired", "redirect"] as const) t
   const address = server.address();
   assert.ok(address && typeof address !== "string");
   const child = spawn(process.execPath, [new URL("../boot/mcp-bridge.ts", import.meta.url).pathname], {
-    env: { PLOW_MCP_URL: `http://127.0.0.1:${address.port}/mcp`, PLOW_AGENT_TOKEN: "fixture-token" },
+    env: { PLOW_MCP_URL: `http://127.0.0.1:${address.port}/mcp`, PLOW_AGENT_TOKEN: "fixture-token", PLOW_MCP_BRIDGE_TOKEN: "bridge-secret" },
     stdio: ["ignore", "ignore", "pipe", "ipc"],
   });
   t.after(async () => { const closed = once(child, "close"); child.kill(); await closed; });
   await once(child, "message");
+  for (const authorization of [undefined, "Bearer wrong", "Bearer fixture-token"]) {
+    const response = await fetch("http://127.0.0.1:18790/mcp", {
+      method: "POST", headers: { "Mcp-Session-Id": "unauthorized", ...(authorization ? { Authorization: authorization } : {}) },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call" }),
+    });
+    assert.equal(response.status, 401);
+    await response.text();
+    assert.equal(received.length, 0, "unauthorized requests never reach the relay");
+  }
   const responses = await Promise.all(["session-A", "session-B"].map(session => fetch("http://127.0.0.1:18790/mcp", {
-    method: "POST", headers: { "Content-Type": "application/json", "Mcp-Session-Id": session, "MCP-Protocol-Version": "2025-06-18" },
+    method: "POST", headers: { Authorization: "Bearer bridge-secret", "Content-Type": "application/json", "Mcp-Session-Id": session, "MCP-Protocol-Version": "2025-06-18" },
     body: JSON.stringify({ jsonrpc: "2.0", id: session, method: "tools/call", params: { name: "write_file" } }),
   })));
   assert.equal(received.length, 2);
@@ -44,7 +53,7 @@ for (const mode of ["json", "sse", "failure", "expired", "redirect"] as const) t
     } else await response.text();
   }
   if (mode === "json" || mode === "sse") {
-    const response = await fetch("http://127.0.0.1:18790/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) });
+    const response = await fetch("http://127.0.0.1:18790/mcp", { method: "POST", headers: { Authorization: "Bearer bridge-secret" }, body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) });
     assert.equal(response.status, 202);
     assert.equal(await response.text(), "");
   }

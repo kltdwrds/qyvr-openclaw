@@ -45,6 +45,7 @@ export function renderConfig(identity: Identity, apiBase: string) {
     } },
     ...(identity.mcp_url ? { mcp: { sessionIdleTtlMs: 300_000, servers: { plow: {
       url: "http://127.0.0.1:18790/mcp", transport: "streamable-http",
+      headers: { Authorization: "Bearer ${PLOW_MCP_BRIDGE_TOKEN}" },
     } } } } : {}),
     plugins: { load: { paths: ["/opt/plow/plugin"] }, entries: { plow: { enabled: true } } },
     channels: { plow: {

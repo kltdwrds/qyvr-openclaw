@@ -20,14 +20,22 @@ for (const ending of ["gateway", "bridge", "signal", "startup-failure", "restart
   });
   syncBuiltinESMExports();
   t.after(() => { process.emit("SIGTERM"); t.mock.restoreAll(); syncBuiltinESMExports(); process.exitCode = previousCode; });
+  const bridgeToken = process.env.PLOW_MCP_BRIDGE_TOKEN;
+  process.env.PLOW_MCP_BRIDGE_TOKEN = "supervisor-fixture-secret";
+  t.after(() => {
+    if (bridgeToken === undefined) delete process.env.PLOW_MCP_BRIDGE_TOKEN;
+    else process.env.PLOW_MCP_BRIDGE_TOKEN = bridgeToken;
+  });
   const starting = startGateway(true, "https://relay/mcp");
   assert.equal(children.length, 1, "gateway waits for bridge readiness");
   assert.equal(await starting, children[1]);
-  assert.deepEqual(Object.keys(options[0].env!).sort(), ["PLOW_AGENT_TOKEN", "PLOW_MCP_URL"]);
+  assert.deepEqual(Object.keys(options[0].env!).sort(), ["PLOW_AGENT_TOKEN", "PLOW_MCP_BRIDGE_TOKEN", "PLOW_MCP_URL"]);
+  assert.equal(options[0].env!.PLOW_MCP_BRIDGE_TOKEN, "supervisor-fixture-secret");
   if (ending === "bridge" || ending === "startup-failure") {
     if (ending === "bridge") children[0].emit("close", null, "SIGKILL");
     assert.deepEqual(children[1].signals, [], "bridge death must not stop the gateway");
     await new Promise(resolve => setTimeout(resolve, 1100));
+    assert.equal(options[2].env!.PLOW_MCP_BRIDGE_TOKEN, "supervisor-fixture-secret");
     assert.equal(children.length, 3, "boot restarts the bridge");
     assert.deepEqual(children[1].signals, [], "gateway survives the restart");
     process.emit("SIGTERM");

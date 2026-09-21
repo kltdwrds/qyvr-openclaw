@@ -2,10 +2,15 @@ import { createServer } from "node:http";
 
 const url = process.env.PLOW_MCP_URL;
 const token = process.env.PLOW_AGENT_TOKEN;
-if (!url || !token) throw new Error("PLOW_MCP_URL and PLOW_AGENT_TOKEN are required");
+const bridgeToken = process.env.PLOW_MCP_BRIDGE_TOKEN;
+if (!url || !token || !bridgeToken) throw new Error("PLOW_MCP_URL, PLOW_AGENT_TOKEN and PLOW_MCP_BRIDGE_TOKEN are required");
 
 // Preserve each client's MCP session and HTTP result; never replay a request.
 createServer(async (request, response) => {
+  if (request.headers.authorization !== `Bearer ${bridgeToken}`) {
+    response.writeHead(401).end("Unauthorized");
+    return;
+  }
   try {
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(chunk);

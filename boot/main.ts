@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
-import { waitForActivity } from "../plugin/dist/transport.js";
+import { setTimeout as sleep } from "node:timers/promises";
 import { renderConfig, findOwnerChat } from "./config.js";
 import { identityFromApi } from "./identity.js";
 import { renderPrompt } from "./prompt.js";
@@ -11,6 +11,7 @@ try {
   if (!base) throw new Error("PLOW_API_BASE is required");
   process.env.PLOW_AGENT_TOKEN ||= "proxied";
   process.env.OPENCLAW_GATEWAY_TOKEN = randomBytes(32).toString("hex");
+  process.env.PLOW_MCP_BRIDGE_TOKEN = randomBytes(32).toString("hex");
   let identity = (await identityFromApi(base, process.env.PLOW_AGENT_TOKEN))!;
   let waited = false;
   let nextLog = 0;
@@ -20,7 +21,7 @@ try {
       console.log("plow-boot: waiting for the first text in the owner's chat");
       nextLog = Date.now() + 3_600_000;
     }
-    await waitForActivity(base);
+    await sleep(1_000);
     identity = await identityFromApi(base, process.env.PLOW_AGENT_TOKEN, true) ?? identity;
   }
   const config = renderConfig(identity, base);
