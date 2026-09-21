@@ -111,3 +111,7 @@ test("the API agent name configures the assistant identity", () => {
 for (const name of [undefined, null, "", "  "]) test(`missing agent name is not invented: ${JSON.stringify(name)}`, () => {
   assert.throws(() => renderConfig({ ...identity, agent: { name } }, "http://api:8000"), /no usable agent.name/);
 });
+
+test("the base image does not serve the OpenClaw browser UI", () => {
+  assert.equal(renderConfig(identity, "http://api:8000").gateway.controlUi?.enabled, false);
+});

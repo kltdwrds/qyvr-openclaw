@@ -61,7 +61,9 @@ is also processed. Existing answered history is baselined, and restarts do not s
 Boot renders OpenClaw configuration and the workspace prompt under
 `/var/lib/plow`, which Compose persists. The config uses environment references
 for credentials and selects the Plow provider. The gateway runs as `node` and
-binds loopback; Compose publishes no ports. Boot supervises it and forwards
+binds loopback; Compose publishes no ports. The OpenClaw browser Control UI is
+disabled. This image adds no multiplayer proxy, gateway roles, user profiles or
+browser sign-in. Boot supervises the gateway and forwards
 shutdown signals. Plow's provider configuration allows a private API address,
 so set `PLOW_API_BASE` only to an endpoint you control.
 
