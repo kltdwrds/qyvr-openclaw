@@ -19,7 +19,7 @@ for (const kind of ["group", "direct", "email"]) for (const role of ["owner", "m
   let toolsDisabled: boolean | undefined;
   const observations: string[] = [];
   let observe: (event: { toolName: string; error?: string }) => unknown;
-  let context: { access?: { toolPolicy?: { deny: string[] } }; from: string; sender: { id: string }; conversation: { id: string; routePeer: Peer }; message: { bodyForAgent: string } } | undefined;
+  let context: { access?: { toolPolicy?: { deny: string[] } }; from: string; sender: { id: string }; conversation: { id: string; routePeer: Peer }; message: { rawBody: string }; supplemental: { channelStructuredContext: { payload: { trusted: boolean; participants: { role: string }[] } }[] } } | undefined;
   let channel: { gateway: { startAccount: (context: object) => Promise<void> } } | undefined;
   entry.register({ registrationMode: "full", registerTool() {}, logger: { info(text: string) { observations.push(text); } },
     on(name: string, handler: typeof observe) { if (name === "after_tool_call") observe = handler; },
@@ -39,7 +39,7 @@ for (const kind of ["group", "direct", "email"]) for (const role of ["owner", "m
   assert.equal(context.sender.id, role === "owner" ? "canonical-owner" : "local-sender");
   assert.deepEqual(context.access?.toolPolicy, undefined);
   assert.equal(toolsDisabled, undefined);
-  const facts = JSON.parse(context.message.bodyForAgent.split("```json\n")[1].split("\n```")[0]);
+  const facts = context.supplemental.channelStructuredContext[0].payload;
   assert.equal(facts.trusted, trusted);
   assert.equal(facts.participants[0].role, role);
   const records = observations.filter(text => text.startsWith("plow tool ")).map(text => JSON.parse(text.slice(10)));
@@ -51,5 +51,5 @@ for (const kind of ["group", "direct", "email"]) for (const role of ["owner", "m
   const peer = { kind: kind === "group" ? "group" : "direct", id: kind === "group" ? "chat" : "local-sender" };
   assert.deepEqual(routingPeer, peer);
   assert.deepEqual(context.conversation.routePeer, peer);
-  assert.ok(!context.message.bodyForAgent.includes(sender.provider_key));
+  assert.ok(!JSON.stringify([context.message, context.supplemental]).includes(sender.provider_key));
 });

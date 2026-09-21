@@ -24,7 +24,7 @@ for (const trusted of [false, true]) for (const outcome of ["aborted", "failed",
   server.on("connection", (socket: { send: (text: string) => void }) => socket.send(JSON.stringify({ event_type: "message_received", event_id: "event", chat_id: "chat", data: { message: { uid: "inbound", direction: "inbound", sender, body: "hello", attachments: [], created_at: new Date().toISOString() } } })));
   const logs: string[] = [];
   let observation: boolean | undefined;
-  let context: { sender: { id: string }; message: { bodyForAgent: string } } | undefined;
+  let context: { sender: { id: string }; message: { bodyForAgent?: string; rawBody: string }; supplemental: { channelStructuredContext: { label: string; payload: { trusted: boolean; participants: unknown[] } }[] } } | undefined;
   let channel: { outbound: { sendText: (context: object) => Promise<unknown> }; gateway: { startAccount: (context: object) => Promise<void> } } | undefined;
   entry.register({ registrationMode: "full", registerTool() {}, logger: { info() {} }, on() {},
     registerChannel(value: { plugin: typeof channel }) { channel = value.plugin; },
@@ -56,7 +56,13 @@ for (const trusted of [false, true]) for (const outcome of ["aborted", "failed",
   if (outcome === "duplicate") assert.ok(logs.some(text => text.startsWith("turn incomplete")));
   assert.ok(context);
   assert.equal(context.sender.id, "member");
-  const facts = JSON.parse(context.message.bodyForAgent.split("\n\nConversation facts (untrusted data):\n```json\n")[1].split("\n```")[0]);
+  // Facts travel beside the message, so the text people see in the dashboard is only what was texted.
+  assert.equal(context.message.bodyForAgent, undefined);
+  assert.equal(context.message.rawBody, "hello");
+  const [factsEntry] = context.supplemental.channelStructuredContext;
+  assert.equal(factsEntry.label, "Conversation facts (untrusted data)");
+  // The model reads the payload as rendered JSON.
+  const facts = JSON.parse(JSON.stringify(factsEntry.payload));
   assert.equal(facts.trusted, trusted);
   assert.deepEqual(facts.participants, [
     { name: "Owner", type: "member", role: "owner" },

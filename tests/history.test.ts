@@ -19,7 +19,7 @@ test("a checkpointed outbound opener still seeds the first group turn", async t 
     for (const msg of [opener, message("reply", "Let's do 12:45"), message("thanks", "Thanks")])
       socket.send(JSON.stringify({ event_type: "message_received", event_id: msg.uid, chat_id: chat.uid, data: { message: msg } }));
   });
-  const contexts: { message: { bodyForAgent: string; inboundHistory?: unknown[] } }[] = [];
+  const contexts: { message: { inboundHistory?: unknown[] }; supplemental: { channelStructuredContext: { payload: { participants: unknown[] } }[] } }[] = [];
   let channel: { gateway: { startAccount: (context: object) => Promise<void> } };
   entry.register({ registrationMode: "full", registerTool() {}, logger: { info() {} }, on() {},
     registerChannel(value: { plugin: typeof channel }) { channel = value.plugin; },
@@ -47,6 +47,6 @@ test("a checkpointed outbound opener still seeds the first group turn", async t 
   assert.deepEqual(contexts[1].message.inboundHistory, []);
   assert.deepEqual(fetch.mock.calls.map(call => String(call.arguments[0])).filter(url => url.includes("/messages?")),
     [`${apiBase}/v1/chats/group/messages?limit=20&starting_after=reply`]);
-  const facts = JSON.parse(contexts[0].message.bodyForAgent.split("```json\n")[1].split("\n```")[0]);
+  const facts = contexts[0].supplemental.channelStructuredContext[0].payload;
   assert.deepEqual(facts.participants[0], { name: "Juniper", type: "agent", role: "self" });
 });

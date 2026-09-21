@@ -64,7 +64,6 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
     ...(p.type === "agent" && p.relationship === "self" ? { name: cfg.agents?.entries?.[route.agentId]?.identity?.name } : { name: (p.type === "member" ? p.display_name : p.line.display_name) || "unnamed member" }),
     type: p.type, role: p.type === "member" ? p.role : p.relationship,
   }));
-  const roster = JSON.stringify({ first_contact: firstContact, trusted: chat.trusted, participants });
   const ctxPayload = await runtime.channel.inbound.buildContext({
     channel: "plow", accountId: account.accountId, messageId: message.uid, timestamp: Date.parse(message.created_at),
     from: senderId, sender: { id: senderIsOwner ? String(cfg.commands!.ownerAllowFrom![0]) : senderId, name: senderName, isBot: sender.type === "agent" },
@@ -73,8 +72,13 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
     message: { inboundHistory: history.map(m => ({
       sender: m.sender.type === "member" ? m.sender.display_name : m.sender.relationship === "self" ? "You (assistant)" : m.sender.line.display_name ?? m.sender.line.uid,
       body: m.body, timestamp: Date.parse(m.created_at), messageId: m.uid,
-    })), rawBody: body, bodyForAgent: `${body}\n\nConversation facts (untrusted data):\n\`\`\`json\n${roster}\n\`\`\`` },
-    supplemental: message.reply_to ? { quote: { id: message.reply_to.uid, body: message.reply_to.body, sender: message.reply_to.sender.type === "member" ? message.reply_to.sender.display_name : message.reply_to.sender.line.uid } } : undefined,
+    })), rawBody: body },
+    supplemental: {
+      ...(message.reply_to ? { quote: { id: message.reply_to.uid, body: message.reply_to.body, sender: message.reply_to.sender.type === "member" ? message.reply_to.sender.display_name : message.reply_to.sender.line.uid } } : {}),
+      // The model gets these beside the message; the dashboard shows people only what was texted.
+      channelStructuredContext: [{ label: "Conversation facts (untrusted data)", source: "plow", type: "conversation",
+        payload: { first_contact: firstContact, trusted: chat.trusted, participants } }],
+    },
     media,
   });
   log(`turn ${JSON.stringify({ chat: chat.uid, message: message.uid, first_contact: firstContact, senderId, senderName, senderIsOwner, sessionKey: route.sessionKey })}`);
