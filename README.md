@@ -55,7 +55,7 @@ The boot process does not read a credential file itself.
 
 Boot fetches the agent's identity, including its line, chats and optional MCP
 relay URL. If the owner's direct chat does not exist yet, it waits for the first
-text, polling identity once a second. A pending first message sent before boot
+text, polling identity every five seconds. A pending first message sent before boot
 is also processed. Existing answered history is baselined, and restarts do not send a greeting.
 
 Boot renders OpenClaw configuration and the workspace prompt under

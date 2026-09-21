@@ -18,7 +18,9 @@ test("boot polls identity without a plugin installation", { timeout: 10_000 }, a
     await writeFile(join(root, name.replace(/\.ts$/, ".js")), stripTypeScriptTypes(source.replaceAll(/(from "\.\/[^"\n]+)\.ts"/g, '$1.js"')));
   }
   let polls = 0;
+  const pollTimes: number[] = [];
   const server = createServer((request, response) => {
+    pollTimes.push(performance.now());
     assert.equal(request.url, "/v1/agents/me");
     assert.equal(request.headers.authorization, "Bearer boot-fixture");
     response.setHeader("Content-Type", "application/json");
@@ -40,4 +42,5 @@ test("boot polls identity without a plugin installation", { timeout: 10_000 }, a
   t.after(async () => { child.kill(); await closed; });
   await Promise.race([polled, closed.then(() => assert.fail(stderr))]);
   assert.equal(polls, 2);
+  assert.ok(pollTimes[1] - pollTimes[0] >= 5_000, "identity polls must be at least five seconds apart");
 });
