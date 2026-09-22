@@ -57,10 +57,12 @@ chat. Identity lookup tolerates 401/403 for 120 seconds and retries network/429/
 failures ten times. Invalid identity or exhausted boot retries leave the
 container running with a diagnostic error. The plugin subscribes before listing
 chats, discovers the active owner DM from its roster, and buffers messages during
-baseline recovery. Multiple owner DMs are refused rather than choosing one.
+baseline recovery. Multiple owner DMs are refused, and the chat account stops
+until the container restarts.
 Socket drops reconnect with backoff; the plugin never re-reads identity.
 
-The first live owner-chat message without a checkpoint is first contact.
+Without a checkpoint, the newest inbound member message in the owner DM is
+first contact, including a message sent before the plugin connects.
 Chat checkpoints survive restarts. Chats omitted from a truncated listing
 recover on their first live frame. Optional history failures still dispatch the
 current message. Email threads have separate sessions, shared by their senders,

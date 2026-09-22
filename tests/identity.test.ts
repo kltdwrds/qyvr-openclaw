@@ -70,3 +70,8 @@ test("boot uses the identity endpoint that includes agent.name", async t => {
   });
   assert.equal((await identityFromApi("http://fixture", "test-token"))?.agent?.name, "Juniper");
 });
+
+test("identity rejects an empty line UID", async t => {
+  t.mock.method(globalThis, "fetch", async () => Response.json({ line: { uid: "" }, chats: [] }));
+  await assert.rejects(identityFromApi("http://fixture", "test-token"), /missing line uid/);
+});

@@ -42,7 +42,6 @@ test("boot accepts no owner chat or ambiguous owner chats without waiting", () =
   for (const chats of [[], [...identity.chats, ...identity.chats]]) {
     assert.deepEqual(renderConfig({ ...identity, chats }, "http://api:8000").commands.ownerAllowFrom, ["plow-owner"]);
   }
-  assert.throws(() => renderConfig({ ...identity, line: { uid: "" } }, "http://api:8000"), /line/);
 });
 
 test("provider and optional MCP use environment references, never credential values", () => {

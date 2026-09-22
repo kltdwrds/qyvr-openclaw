@@ -172,7 +172,7 @@ for (const scenario of ["waited", "pending", "buffered", "answered", "peer", "gr
     });
     assert.equal(await readFile(`${root}/plow-checkpoints/home`, "utf8"), "first");
   }
-  assert.deepEqual(turns, ["waited", "buffered", "fresh"].includes(scenario) ? [{ uid: "first", firstContact: true }] : []);
+  assert.deepEqual(turns, ["waited", "pending", "buffered", "fresh"].includes(scenario) ? [{ uid: "first", firstContact: true }] : []);
 });
 
 test("first-contact recovery includes its message and newer arrivals, excluding older history", async t => {

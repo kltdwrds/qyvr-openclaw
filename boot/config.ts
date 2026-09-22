@@ -9,7 +9,6 @@ export type Identity = {
 };
 
 export function renderConfig(identity: Identity, apiBase: string) {
-  if (!identity.line.uid) throw new Error("Identity is missing line uid");
   const name = identity.agent?.name;
   if (typeof name !== "string" || !name.trim()) throw new Error(`Identity has no usable agent.name: ${JSON.stringify(name)}`);
   const email = identity.chats.flatMap(chat => chat.participants).find(p =>

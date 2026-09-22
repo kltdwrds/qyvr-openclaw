@@ -44,6 +44,8 @@ export function accepts(account: Account, chat: Chat): boolean {
 
 class AmbiguousOwnerChatError extends Error {}
 
+const discoveredChats = new Map<string, Map<string, Chat>>();
+
 export function findOwnerChat(account: Account, chats: Chat[]): Chat | undefined {
   const owners = chats.filter(chat => chat.status === "active" && chat.participants.length === 2 &&
     chat.participants.some(p => p.type === "agent" && p.relationship === "self" && p.line.uid === account.lineUid) &&
@@ -53,6 +55,8 @@ export function findOwnerChat(account: Account, chats: Chat[]): Chat | undefined
 }
 
 export async function ownerChat(account: Account): Promise<Chat> {
+  const cached = findOwnerChat(account, [...(discoveredChats.get(`${account.apiBase}/${account.lineUid}`)?.values() ?? [])]);
+  if (cached) return cached;
   const listing = await request<Page<Chat>>(account, "/chats");
   if (listing.has_more) throw new Error("Cannot resolve owner from a truncated chat listing");
   const chat = findOwnerChat(account, listing.data);
@@ -84,6 +88,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
   await mkdir(dir, { recursive: true });
   const checkpoints = new Map<string, string>();
   const discovered = new Map<string, Chat>();
+  if (account.accountId === "chat") discoveredChats.set(`${account.apiBase}/${account.lineUid}`, discovered);
   const seen = new Set<string>();
   const contextualized = new Set<string>();
   let attempt = 0;
@@ -178,7 +183,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       const chats = listing.data.filter(chat => accepts(account, chat));
       discovered.clear();
       for (const chat of chats) discovered.set(chat.uid, chat);
-      findOwnerChat(account, chats);
+      const owner = findOwnerChat(account, chats);
       if (account.accountId === "chat") {
         for (const chat of chats) {
           if (checkpoints.has(chat.uid)) continue;
@@ -188,7 +193,8 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
             const page = await request<Page<Message>>(account, `/chats/${chat.uid}/messages?limit=1`);
             const newest = page.data[0];
-            checkpoint = newest?.uid ?? "";
+            checkpoint = chat.uid === owner?.uid && newest?.direction === "inbound" && newest.sender.type === "member"
+              ? `first:${newest.uid}` : newest?.uid ?? "";
             await ack(chat.uid, checkpoint);
             // Include frames that arrived while the baseline was being persisted.
             if (bufferedChats.has(chat.uid)) {
