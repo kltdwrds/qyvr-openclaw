@@ -113,10 +113,6 @@ test("Plow identity does not start OpenClaw's generic naming bootstrap", () => {
   assert.equal(config.agents.defaults.skipBootstrap, true);
 });
 
-test("rendered config has current metadata for OpenClaw's restore check", () => {
-  const before = Date.now();
-  const config = renderConfig(identity, "http://api:8000");
-  assert.ok(config.meta?.lastTouchedAt);
-  assert.ok(Date.parse(config.meta.lastTouchedAt) >= before);
-  assert.ok(Date.parse(config.meta.lastTouchedAt) <= Date.now());
+test("rendered config marks itself intentional without retired metadata keys", () => {
+  assert.deepEqual(renderConfig(identity, "http://api:8000").meta, {});
 });

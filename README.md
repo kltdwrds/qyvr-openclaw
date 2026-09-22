@@ -51,6 +51,7 @@ deletes it, so the next boot starts with fresh agent state.
 Set `PLOW_API_BASE` to the API root without `/v1`. Local runs also need
 `PLOW_AGENT_TOKEN`; cloud hosts can inject it. Use an API endpoint you control.
 Agent state lives in the persistent `/var/lib/plow` volume.
+`openclaw.json` is boot-owned: runtime config edits (`config set`, `set-identity` emoji/avatar changes, and plugin installs) do not survive a restart.
 
 The gateway starts after one bounded identity lookup, even before the owner has a
 chat. Identity lookup tolerates 401/403 for 120 seconds and retries network/429/5xx
