@@ -4,15 +4,19 @@ The image pins the runtime and SDK. CI type-checks boot, plugin and build source
 runs all Node tests against that image, and boots the real offline gateway probe.
 Tests use local fixtures and need no Plow credentials. Type checking uses the
 published OpenClaw 2026.9.4 declarations because the runtime image omits them;
-runtime tests use the SDK shipped in the pinned image.
+runtime tests use the SDK shipped in the pinned image. The plugin is an npm
+workspace: CI and the image use the root lock, with development, peer and optional
+dependencies omitted from the image install.
 
 ```sh
 npm ci
 docker build -t plow-openclaw:test .
+docker run --rm --network none -v "$PWD/tests:/opt/plow/tests:ro" \
+  plow-openclaw:test node --test /opt/plow/tests/dependencies.test.ts
 docker run --rm --user root --network none \
   -v "$PWD/node_modules:/opt/plow/node_modules:ro" \
   -v "$PWD/tests:/opt/plow/tests:ro" plow-openclaw:test sh -c \
-  '/opt/plow/node_modules/.bin/tsc --noEmit -p /opt/plow/tsconfig.json && ln -s /app /opt/plow/plugin/node_modules/openclaw && node --test /opt/plow/tests/*.test.ts'
+  '/opt/plow/node_modules/.bin/tsc --noEmit -p /opt/plow/tsconfig.json && mkdir -p /opt/plow/plugin/node_modules && ln -s /app /opt/plow/plugin/node_modules/openclaw && node --test /opt/plow/tests/*.test.ts'
 docker run --rm --network none plow-openclaw:test /opt/plow/probe
 ```
 

@@ -14,11 +14,13 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: docker build -t plow-openclaw:test .
+      - name: Check image dependencies
+        run: docker run --rm --network none -v "$PWD/tests:/opt/plow/tests:ro" plow-openclaw:test node --test /opt/plow/tests/dependencies.test.ts
       - name: Type-check and test
         run: |
           docker run --rm --user root --network none \
             -v "$PWD/node_modules:/opt/plow/node_modules:ro" \
             -v "$PWD/tests:/opt/plow/tests:ro" plow-openclaw:test sh -c \
-            '/opt/plow/node_modules/.bin/tsc --noEmit -p /opt/plow/tsconfig.json && ln -s /app /opt/plow/plugin/node_modules/openclaw && node --test /opt/plow/tests/*.test.ts'
+            '/opt/plow/node_modules/.bin/tsc --noEmit -p /opt/plow/tsconfig.json && mkdir -p /opt/plow/plugin/node_modules && ln -s /app /opt/plow/plugin/node_modules/openclaw && node --test /opt/plow/tests/*.test.ts'
       - name: Offline gateway probe
         run: docker run --rm --network none plow-openclaw:test /opt/plow/probe
