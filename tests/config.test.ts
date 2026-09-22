@@ -59,10 +59,10 @@ test("GLM falls back to Sonnet on the Plow provider with explicit capacity and p
     primary: "plow/z-ai/glm-5.2", fallbacks: ["plow/anthropic/claude-sonnet-5"],
   });
   assert.deepEqual(config.models.providers.plow.models, [{
-    id: "z-ai/glm-5.2", name: "GLM 5.2", contextWindow: 1048576,
+    id: "z-ai/glm-5.2", name: "GLM 5.2", input: ["text"], contextWindow: 1048576,
     cost: { input: 0.5544, output: 1.7424 },
   }, {
-    id: "anthropic/claude-sonnet-5", name: "Claude Sonnet 5", contextWindow: 1000000,
+    id: "anthropic/claude-sonnet-5", name: "Claude Sonnet 5", input: ["text", "image"], contextWindow: 1000000,
     cost: { input: 2.00, output: 10.00 },
   }]);
 });

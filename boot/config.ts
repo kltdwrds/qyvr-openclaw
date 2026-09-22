@@ -19,8 +19,8 @@ export function renderConfig(identity: Identity, apiBase: string) {
       baseUrl: `${apiBase}/v1`, apiKey: "${PLOW_AGENT_TOKEN}", api: "openai-completions", authHeader: true,
       request: { allowPrivateNetwork: true },
       models: [
-        { id: "z-ai/glm-5.2", name: "GLM 5.2", contextWindow: 1048576, cost: { input: 0.5544, output: 1.7424 } },
-        { id: "anthropic/claude-sonnet-5", name: "Claude Sonnet 5", contextWindow: 1000000, cost: { input: 2.00, output: 10.00 } },
+        { id: "z-ai/glm-5.2", name: "GLM 5.2", input: ["text"], contextWindow: 1048576, cost: { input: 0.5544, output: 1.7424 } },
+        { id: "anthropic/claude-sonnet-5", name: "Claude Sonnet 5", input: ["text", "image"], contextWindow: 1000000, cost: { input: 2.00, output: 10.00 } },
       ],
     } } },
     agents: { entries: { main: { identity: { name } } }, defaults: {
