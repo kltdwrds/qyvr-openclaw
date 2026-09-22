@@ -148,7 +148,7 @@ for (const outcome of ["completed", "incomplete"] as const) test(`unknown delive
   assert.equal(await readFile(`${root}/plow-checkpoints/chat`, "utf8"), outcome === "completed" ? "next" : "uncertain");
 });
 
-for (const scenario of ["waited", "pending", "buffered", "answered", "peer", "group", "fresh"]) test(`first contact and restart: ${scenario}`, async t => {
+for (const scenario of ["waited", "pending", "buffered", "pending-buffered", "interrupted", "answered", "peer", "group", "fresh"]) test(`first contact and restart: ${scenario}`, async t => {
   const { root, server, apiBase, abortAfter } = await websocketFixture(t);
   if (scenario === "waited") {
     await mkdir(`${root}/plow-checkpoints`);
@@ -160,19 +160,24 @@ for (const scenario of ["waited", "pending", "buffered", "answered", "peer", "gr
   const first = { uid: "first", body: "What is 17 + 25?", direction: scenario === "answered" ? "outbound" : "inbound",
     sender: scenario === "peer" ? { type: "agent", relationship: "peer", line: { uid: "peer" } } : sender };
   const older = { ...first, uid: "older" };
-  if (["buffered", "fresh"].includes(scenario)) server.on("connection", (socket: { send: (text: string) => void }) => socket.send(JSON.stringify({ event_type: "message_received", event_id: "first", chat_id: "home", data: { message: first } })));
+  const newer = { ...first, uid: "newer" };
+  let boot = 0;
+  if (["buffered", "fresh", "interrupted", "pending-buffered"].includes(scenario)) server.on("connection", (socket: { send: (text: string) => void }) => {
+    if (scenario !== "interrupted" || !boot) socket.send(JSON.stringify({ event_type: "message_received", event_id: "first", chat_id: "home", data: { message: scenario === "pending-buffered" ? newer : first } }));
+  });
   t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
-    url.endsWith("/chats") ? { data: scenario === "fresh" ? [] : [chat], has_more: false } : url.endsWith("/chats/home") ? chat : url.includes("/messages?") ? { data: url.includes("limit=1") || scenario === "waited" ? [first] : [first, older], has_more: false } : { ticket: "ticket" }));
+    url.endsWith("/chats") ? { data: scenario === "fresh" || (scenario === "interrupted" && !boot) ? [] : [chat], has_more: false } : url.endsWith("/chats/home") ? chat : url.includes("/messages?") ? { data: url.includes("limit=1") || scenario === "waited" ? [first] : scenario === "pending-buffered" ? [newer, first, older] : [first, older], has_more: false } : { ticket: "ticket" }));
   const turns: { uid: string; firstContact: boolean }[] = [];
-  for (let boot = 0; boot < 2; boot++) {
+  for (; boot < 2; boot++) {
     const controller = abortAfter();
     await listen(fixture, controller.signal, () => {}, async (_chat, message, firstContact) => {
       turns.push({ uid: message.uid, firstContact });
+      if (scenario === "interrupted") { controller.abort(); return boot ? "completed" : "incomplete"; }
       return "completed";
     });
-    assert.equal(await readFile(`${root}/plow-checkpoints/home`, "utf8"), "first");
+    assert.equal(await readFile(`${root}/plow-checkpoints/home`, "utf8"), scenario === "interrupted" && !boot ? "first:first" : scenario === "pending-buffered" ? "newer" : "first");
   }
-  assert.deepEqual(turns, ["waited", "pending", "buffered", "fresh"].includes(scenario) ? [{ uid: "first", firstContact: true }] : []);
+  assert.deepEqual(turns, scenario === "interrupted" ? [{ uid: "first", firstContact: true }, { uid: "first", firstContact: true }] : scenario === "pending-buffered" ? [{ uid: "first", firstContact: true }, { uid: "newer", firstContact: false }] : ["waited", "pending", "buffered", "fresh"].includes(scenario) ? [{ uid: "first", firstContact: true }] : []);
 });
 
 test("first-contact recovery includes its message and newer arrivals, excluding older history", async t => {
@@ -387,31 +392,6 @@ test("reconnecting does not re-inject history into an already contextualized cha
   assert.equal(historyReads, 1);
 });
 
-test("an interrupted first live owner turn survives restart without boot seeding", async t => {
-  const { server, apiBase, abortAfter } = await websocketFixture(t);
-  const fixture = { ...account, apiBase, lineUid: "line" };
-  const sender = { type: "member", uid: "owner", role: "owner" };
-  const chat = { uid: "home", status: "active", participants: [sender, { type: "agent", relationship: "self", line: { uid: "line" } }] };
-  const first = { uid: "first", direction: "inbound", sender };
-  let boot = 0;
-  server.on("connection", (socket: { send: (text: string) => void }) => {
-    if (!boot) socket.send(JSON.stringify({ event_type: "message_received", event_id: "first", chat_id: "home", data: { message: first } }));
-  });
-  t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
-    url.endsWith("/chats") ? { data: boot ? [chat] : [], has_more: false } : url.endsWith("/chats/home") ? chat :
-    url.includes("/messages?") ? { data: [first], has_more: false } : { ticket: "ticket" }));
-  const turns: boolean[] = [];
-  for (; boot < 2; boot++) {
-    const controller = abortAfter();
-    await listen(fixture, controller.signal, () => {}, async (_chat, _message, firstContact) => {
-      turns.push(firstContact);
-      controller.abort();
-      return boot ? "completed" : "incomplete";
-    });
-  }
-  assert.deepEqual(turns, [true, true]);
-});
-
 test("owner discovery requires the unique active self-line DM with an owner", async t => {
   const fixture = { ...account, lineUid: "line" };
   const home: Chat = { uid: "home", status: "active", trusted: true, participants: [
@@ -433,11 +413,10 @@ test("owner discovery requires the unique active self-line DM with an owner", as
   await assert.rejects(ownerChat(fixture), /truncated/);
 });
 
-test("ambiguous owner chats stop until restart instead of repeatedly discovering them", { timeout: 40_000 }, async t => {
+test("ambiguous owner chats stop until restart instead of repeatedly discovering them", async t => {
   const { apiBase } = await websocketFixture(t);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 31_000);
-  t.after(() => { clearTimeout(timeout); controller.abort(); });
+  const logs: string[] = [];
   const participants = [
     { type: "agent", relationship: "self", line: { uid: "line" } },
     { type: "member", uid: "owner", role: "owner" },
@@ -447,8 +426,12 @@ test("ambiguous owner chats stop until restart instead of repeatedly discovering
     if (url.endsWith("/ws/ticket")) { tickets++; return Response.json({ ticket: "ticket" }); }
     return Response.json({ data: ["first", "second"].map(uid => ({ uid, status: "active", participants })), has_more: false });
   });
-  await listen({ ...account, apiBase, lineUid: "line" }, controller.signal, () => {}, async () => {
+  await listen({ ...account, apiBase, lineUid: "line" }, controller.signal, text => {
+    logs.push(text);
+    if (text.includes("stopped")) queueMicrotask(() => controller.abort());
+  }, async () => {
     assert.fail("Ambiguous owner chats must not dispatch");
   });
+  assert.ok(logs.includes("Expected one owner's chat; found 2; stopped until restart"));
   assert.equal(tickets, 1);
 });

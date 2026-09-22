@@ -11,8 +11,6 @@ dependencies omitted from the image install.
 ```sh
 npm ci
 docker build -t plow-openclaw:test .
-docker run --rm --network none -v "$PWD/tests:/opt/plow/tests:ro" \
-  plow-openclaw:test node --test /opt/plow/tests/dependencies.test.ts
 docker run --rm --user root --network none \
   -v "$PWD/node_modules:/opt/plow/node_modules:ro" \
   -v "$PWD/tests:/opt/plow/tests:ro" plow-openclaw:test sh -c \

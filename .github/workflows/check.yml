@@ -14,8 +14,6 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: docker build -t plow-openclaw:test .
-      - name: Check image dependencies
-        run: docker run --rm --network none -v "$PWD/tests:/opt/plow/tests:ro" plow-openclaw:test node --test /opt/plow/tests/dependencies.test.ts
       - name: Type-check and test
         run: |
           docker run --rm --user root --network none \

@@ -197,7 +197,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
               ? `first:${newest.uid}` : newest?.uid ?? "";
             await ack(chat.uid, checkpoint);
             // Include frames that arrived while the baseline was being persisted.
-            if (bufferedChats.has(chat.uid)) {
+            if (!checkpoint.startsWith("first:") && bufferedChats.has(chat.uid)) {
               checkpoint = `first:${bufferedChats.get(chat.uid)}`;
               await ack(chat.uid, checkpoint);
             }
