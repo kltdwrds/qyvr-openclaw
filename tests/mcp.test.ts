@@ -58,3 +58,49 @@ for (const mode of ["json", "sse", "failure", "expired", "redirect"] as const) t
     assert.equal(await response.text(), "");
   }
 });
+
+for (const mode of ["stream", "slow-tool"] as const) test(`HTTP bridge preserves long-lived MCP: ${mode}`, { timeout: 75_000 }, async t => {
+  let calls = 0;
+  let timer: NodeJS.Timeout | undefined;
+  const server = createServer((request, response) => {
+    calls++;
+    assert.equal(request.headers.authorization, "Bearer fixture-token");
+    if (mode === "stream") {
+      assert.equal(request.method, "GET");
+      response.writeHead(200, { "Content-Type": "text/event-stream" });
+      response.write('event: message\ndata: {"jsonrpc":"2.0","method":"notifications/tools/list_changed"}\n\n');
+      response.on("close", () => server.emit("upstream-closed"));
+    } else {
+      timer = setTimeout(() => response.writeHead(200, { "Content-Type": "application/json" }).end('{"result":"completed-once"}'), 61_000);
+    }
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const child = spawn(process.execPath, [new URL("../boot/mcp-bridge.ts", import.meta.url).pathname], {
+    env: { PLOW_MCP_URL: `http://127.0.0.1:${address.port}/mcp`, PLOW_AGENT_TOKEN: "fixture-token", PLOW_MCP_BRIDGE_TOKEN: "bridge-secret" },
+    stdio: ["ignore", "ignore", "pipe", "ipc"],
+  });
+  t.after(async () => {
+    clearTimeout(timer);
+    const closed = once(child, "close"); child.kill(); await closed;
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  });
+  await once(child, "message");
+  const response = await fetch("http://127.0.0.1:18790/mcp", {
+    method: mode === "stream" ? "GET" : "POST",
+    headers: { Authorization: "Bearer bridge-secret", Accept: "application/json, text/event-stream" },
+    ...(mode === "stream" ? {} : { body: '{"jsonrpc":"2.0","id":1,"method":"tools/call"}' }),
+    signal: AbortSignal.timeout(mode === "stream" ? 2_000 : 70_000),
+  });
+  assert.equal(response.status, 200);
+  if (mode === "stream") {
+    const reader = response.body!.getReader();
+    assert.match(new TextDecoder().decode((await reader.read()).value), /tools\/list_changed/);
+    const upstreamClosed = once(server, "upstream-closed", { signal: AbortSignal.timeout(2_000) });
+    await reader.cancel();
+    await upstreamClosed;
+  } else assert.equal(await response.text(), '{"result":"completed-once"}');
+  assert.equal(calls, 1, "no replay of the upstream action");
+});

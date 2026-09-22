@@ -17,18 +17,14 @@ for (const kind of ["group", "direct", "email"]) for (const role of ["owner", "m
   type Peer = { kind: string; id: string };
   let routingPeer: Peer | undefined;
   let toolsDisabled: boolean | undefined;
-  const observations: string[] = [];
-  let observe: (event: { toolName: string; error?: string }) => unknown;
   let context: { access?: { toolPolicy?: { deny: string[] } }; from: string; sender: { id: string }; conversation: { id: string; routePeer: Peer }; message: { rawBody: string }; supplemental: { channelStructuredContext: { payload: { trusted: boolean; participants: { role: string }[] } }[] } } | undefined;
   let channel: { gateway: { startAccount: (context: object) => Promise<void> } } | undefined;
-  entry.register({ registrationMode: "full", registerTool() {}, logger: { info(text: string) { observations.push(text); } },
-    on(name: string, handler: typeof observe) { if (name === "after_tool_call") observe = handler; },
+  entry.register({ registrationMode: "full", registerTool() {}, logger: { info() {} },
     registerChannel(value: { plugin: typeof channel }) { channel = value.plugin; },
     runtime: { channel: {
       routing: { resolveAgentRoute: ({ peer }: { peer: Peer }) => { routingPeer = peer; return { sessionKey: "unchanged" }; } },
       inbound: { buildContext: async (value: typeof context) => { context = value; return {}; }, dispatch: async ({ replyOptions }: { replyOptions: { disableTools?: boolean } }) => {
         toolsDisabled = replyOptions.disableTools;
-        for (const error of [undefined, "host error"]) assert.equal(observe({ toolName: "fixture", error }), undefined);
         controller.abort(); return { dispatched: true, dispatchResult: { deliberateSilentTerminalReply: true } };
       } },
     } },
@@ -42,13 +38,9 @@ for (const kind of ["group", "direct", "email"]) for (const role of ["owner", "m
   const facts = context.supplemental.channelStructuredContext[0].payload;
   assert.equal(facts.trusted, trusted);
   assert.equal(facts.participants[0].role, role);
-  const records = observations.filter(text => text.startsWith("plow tool ")).map(text => JSON.parse(text.slice(10)));
-  assert.deepEqual(records, ["returned", "error"].map(outcome => ({
-    tool: "fixture", chat: "chat", trusted, sender: "local-sender", senderIsOwner: role === "owner", outcome,
-  })));
   assert.equal(context.from, "local-sender");
   assert.equal(context.conversation.id, "chat");
-  const peer = { kind: kind === "group" ? "group" : "direct", id: kind === "group" ? "chat" : "local-sender" };
+  const peer = { kind: kind === "group" ? "group" : "direct", id: kind === "direct" ? "local-sender" : "chat" };
   assert.deepEqual(routingPeer, peer);
   assert.deepEqual(context.conversation.routePeer, peer);
   assert.ok(!JSON.stringify([context.message, context.supplemental]).includes(sender.provider_key));

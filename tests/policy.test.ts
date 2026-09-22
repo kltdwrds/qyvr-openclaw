@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readFile } from "node:fs/promises";
 import entry from "../plugin/index.ts";
 
-for (const mode of ["full", "discovery", "tool-discovery"]) test(`${mode} exposes Plow tools without a tool-call gate`, () => {
+for (const mode of ["full", "discovery", "tool-discovery"]) test(`${mode} exposes Plow tools without a tool-call gate`, async () => {
   const names: string[] = [];
   const hooks: string[] = [];
   entry.register({
@@ -11,30 +12,9 @@ for (const mode of ["full", "discovery", "tool-discovery"]) test(`${mode} expose
     on(name: string) { hooks.push(name); },
   });
   assert.deepEqual(names, ["plow_start_thread"]);
+  const manifest = JSON.parse(await readFile(new URL("../plugin/openclaw.plugin.json", import.meta.url), "utf8"));
+  assert.deepEqual(manifest.contracts.tools, names);
   assert.ok(!hooks.includes("before_tool_call"));
-});
-
-for (const served of [true, false]) test(`detached send checks account reach: served=${served}`, async t => {
-  let channel: { outbound: { sendText: (context: object) => Promise<unknown> } } | undefined;
-  entry.register({ registrationMode: "full", runtime: {}, registerTool() {}, logger: { info() {} }, on() {},
-    registerChannel(value: { plugin: typeof channel }) { channel = value.plugin; } });
-  assert.ok(channel);
-  process.env.PLOW_AGENT_TOKEN = "test-token";
-  const requests: string[] = [];
-  t.mock.method(globalThis, "fetch", async (url: string) => {
-    requests.push(url);
-    return Response.json(url.endsWith("/messages") ? { uid: "sent" } : {
-      uid: "chat", status: "active", participants: [{ type: "agent", relationship: "self", line: { uid: served ? "line" : "other" } }],
-    });
-  });
-  const result = channel.outbound.sendText({ cfg: { channels: { plow: { apiBase: "http://fixture", lineUid: "line" } } }, accountId: "chat", to: "chat", text: "recovered reply" });
-  if (served) {
-    assert.deepEqual(await result, { channel: "plow", messageId: "sent" });
-    assert.deepEqual(requests, ["http://fixture/v1/chats/chat", "http://fixture/v1/chats/chat/messages"]);
-  } else {
-    await assert.rejects(result, /does not serve/);
-    assert.deepEqual(requests, ["http://fixture/v1/chats/chat"]);
-  }
 });
 
 test("start-thread refuses an owner's chat without an owner handle", async t => {

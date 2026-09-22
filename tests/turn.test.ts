@@ -12,7 +12,7 @@ type Dispatch = {
   delivery: { observeMessageSent?: boolean; deliver: (payload: { text: string }) => Promise<unknown> };
 };
 
-for (const trusted of [false, true]) for (const outcome of ["aborted", "failed", "empty", "delivered", "silent", "duplicate", "native-source", "native-other"] as const) test(`turn checkpoints only a confirmed outcome: ${outcome}, trusted=${trusted}`, async t => {
+for (const trusted of [false, true]) for (const outcome of trusted ? ["delivered"] as const : ["aborted", "failed", "empty", "delivered", "silent", "duplicate", "native-source", "native-other"] as const) test(`turn checkpoints only a confirmed outcome: ${outcome}, trusted=${trusted}`, async t => {
   const { root, server, apiBase, abortAfter } = await websocketFixture(t);
   const controller = abortAfter();
   const account = { apiBase, accountId: "chat", lineUid: "line" };

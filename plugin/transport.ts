@@ -82,14 +82,20 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
     const chat = await request<Chat>(account, `/chats/${chatUid}`);
     if (!accepts(account, chat)) return;
     const sender = message.sender;
+    let notifyFailure = false;
     if (message.direction === "inbound" && (sender.type === "member" || (account.accountId === "chat" && sender.relationship === "peer"))) {
       let outcome: TurnOutcome = "incomplete";
       try {
         const checkpoint = checkpoints.get(chat.uid);
         const firstContact = account.accountId === "chat" && chat.uid === account.ownerChatUid && (checkpoint === "" || checkpoint === `first:${message.uid}`);
-        const history = contextualized.has(chat.uid) ? [] : (await request<Page<Message>>(account, `/chats/${chat.uid}/messages?limit=20&starting_after=${message.uid}`)).data.reverse();
+        let history: Message[] = [];
+        let historyLoaded = contextualized.has(chat.uid);
+        if (!historyLoaded) {
+          try { history = (await request<Page<Message>>(account, `/chats/${chat.uid}/messages?limit=20&starting_after=${message.uid}`)).data.reverse(); historyLoaded = true; }
+          catch (error) { log(`history failed chat=${chat.uid}: ${(error as Error).name}; dispatching without history`); }
+        }
         outcome = await turn(chat, message, firstContact, history);
-        contextualized.add(chat.uid);
+        if (historyLoaded) contextualized.add(chat.uid);
       }
       catch (error) {
         if (error instanceof DeliveryUnknownError) {
@@ -103,12 +109,17 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
           log(`turn aborted chat=${chat.uid} message=${message.uid}; left unacked`);
           return;
         }
-        log(`turn incomplete chat=${chat.uid} message=${message.uid}; reply lost, acknowledging`);
+        notifyFailure = true;
+        log(`turn incomplete chat=${chat.uid} message=${message.uid}; acknowledging and notifying`);
       }
     }
     if (account.accountId === "chat") await ack(chatUid, message.uid);
     remember(message.uid);
     log(`acked chat=${chatUid} message=${message.uid}`);
+    if (notifyFailure) await request(account, `/chats/${chatUid}/messages`, {
+      body: "I couldn't finish handling your last message. Part of the request may have already happened, so please check before resending.",
+      attachment_uids: [],
+    }).catch(error => log(`failure notice failed chat=${chatUid}: ${(error as Error).name}; not retrying`));
   };
   while (!signal.aborted) {
     let socket: WebSocket | undefined;
@@ -134,7 +145,6 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       signal.addEventListener("abort", abort, { once: true });
       await once(socket, "open", { signal });
       attempt = 0;
-      contextualized.clear();
       log(`connected account=${account.accountId}`);
       let alive = true;
       socket.on("pong", () => { alive = true; });
@@ -170,18 +180,33 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       socket.off("message", trackBufferedChat);
       // Retain the finite recovery overlap until this connection closes.
       const replayed = new Set<string>();
-      if (account.accountId === "chat") {
-        for (const chat of chats) {
-          for (const message of await recover(account, chat.uid, checkpoints.get(chat.uid)!)) {
-            await consume(chat.uid, message);
-            replayed.add(message.uid);
-          }
+      const recoveredChats = new Set<string>();
+      const replay = async (chatUid: string) => {
+        for (const message of await recover(account, chatUid, checkpoints.get(chatUid)!)) {
+          await consume(chatUid, message);
+          replayed.add(message.uid);
         }
+        recoveredChats.add(chatUid);
+      };
+      if (account.accountId === "chat") {
+        for (const chat of chats) await replay(chat.uid);
       }
       for await (const [raw] of frames) {
         const event = JSON.parse(raw.toString());
         if (event.event_type !== "message_received" || seen.has(event.event_id) || replayed.has(event.data.message.uid)) continue;
-        await consume(event.chat_id, event.data.message);
+        if (account.accountId === "chat" && !recoveredChats.has(event.chat_id)) {
+          if (!checkpoints.has(event.chat_id)) {
+            let checkpoint: string;
+            try { checkpoint = await readFile(`${dir}/${event.chat_id}`, "utf8"); }
+            catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+              checkpoint = `first:${event.data.message.uid}`;
+            }
+            checkpoints.set(event.chat_id, checkpoint);
+          }
+          await replay(event.chat_id);
+        }
+        if (!replayed.has(event.data.message.uid)) await consume(event.chat_id, event.data.message);
         remember(event.event_id);
       }
       if (unauthorized) throw new HttpError(401);

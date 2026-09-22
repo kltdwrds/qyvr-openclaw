@@ -130,7 +130,7 @@ for (const outcome of ["completed", "incomplete"] as const) test(`unknown delive
   const controller = abortAfter();
   const fixture = { ...account, apiBase, lineUid: "line" };
   const chat = { uid: "chat", status: "active", trusted: false, participants: [{ type: "agent", relationship: "self", line: { uid: "line" } }] };
-  t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
+  const fetch = t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
     url.endsWith("/chats") ? { data: [chat], has_more: false } :
     url.endsWith("/chats/chat") ? chat : url.includes("/messages?") ? { data: [], has_more: false } : { ticket: "ticket" }));
   server.on("connection", (socket: { send: (text: string) => void }) => {
@@ -144,6 +144,7 @@ for (const outcome of ["completed", "incomplete"] as const) test(`unknown delive
     return outcome;
   });
   assert.deepEqual(calls, ["uncertain", "next"]);
+  assert.equal(fetch.mock.calls.filter(call => String(call.arguments[0]).endsWith("/messages")).length, 0, "unknown delivery never sends another message");
   assert.equal(await readFile(`${root}/plow-checkpoints/chat`, "utf8"), outcome === "completed" ? "next" : "uncertain");
 });
 
@@ -182,7 +183,7 @@ test("first-contact recovery includes its message and newer arrivals, excluding 
   assert.deepEqual((await recover(account, "home", "first:pending")).map(m => m.uid), ["pending", "newer"]);
 });
 
-for (const failure of ["incomplete", "throws"] as const) test(`a turn that ${failure} is acked without disconnecting or replaying later turns`, async t => {
+for (const failure of ["incomplete", "throws", "notice-unknown"] as const) test(`a turn that ${failure} is acked without disconnecting or replaying later turns`, async t => {
   const { root, server, apiBase, abortAfter } = await websocketFixture(t);
   const fixture = { ...account, apiBase, lineUid: "line" };
   const chats = ["home", "other"].map(uid => ({ uid, status: "active", participants: [
@@ -190,10 +191,19 @@ for (const failure of ["incomplete", "throws"] as const) test(`a turn that ${fai
   ] }));
   const messages = ["unfinished", "later"].map(uid => ({ uid, direction: "inbound", sender: { type: "member" } }));
   let recovering = false;
-  t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
+  const notices: { url: string; body: string; checkpoint: string }[] = [];
+  t.mock.method(globalThis, "fetch", async (url: string, options: RequestInit) => {
+    if (options.method === "POST" && url.endsWith("/messages")) {
+      notices.push({ url, body: JSON.parse(options.body as string).body,
+        checkpoint: await readFile(`${root}/plow-checkpoints/home`, "utf8") });
+      if (failure === "notice-unknown") throw new TypeError("connection lost after sending notice");
+      return Response.json({ uid: "notice" });
+    }
+    return Response.json(
     url.endsWith("/chats") ? { data: chats, has_more: false } :
     url.includes("/messages?") ? { data: recovering && url.includes("/home/") ? [...messages].reverse() : [], has_more: false } :
-    chats.find(chat => url.endsWith(`/chats/${chat.uid}`)) ?? { ticket: "ticket" }));
+    chats.find(chat => url.endsWith(`/chats/${chat.uid}`)) ?? { ticket: "ticket" });
+  });
   let connections = 0;
   server.on("connection", (socket: { send: (text: string) => void }) => {
     connections++;
@@ -226,6 +236,11 @@ for (const failure of ["incomplete", "throws"] as const) test(`a turn that ${fai
     assert.equal(await readFile(`${root}/plow-checkpoints/home`, "utf8"), "later");
     assert.equal(await readFile(`${root}/plow-checkpoints/other`, "utf8"), "other-reply");
     assert.equal(connections, recovering ? 2 : 1);
+    assert.equal(notices.length, 1, "one notice attempt, with no replay after restart or uncertain notice delivery");
+    assert.equal(notices[0].checkpoint, "unfinished");
+    assert.equal(notices[0].url, `${apiBase}/v1/chats/home/messages`);
+    assert.match(notices[0].body, /part.*may have.*(?:happened|gone through)/i);
+    assert.match(notices[0].body, /check before resending/i);
     assert.ok(!logs.some(text => text.startsWith("transport stopped")));
     if (!recovering) assert.ok(logs.some(text => text.includes("turn incomplete chat=home message=unfinished")));
   }
@@ -279,4 +294,95 @@ for (const count of [1, 2]) for (const arrival of ["listing", "baseline"] as con
   });
   assert.deepEqual(received, messages.slice(1).map(message => message.uid));
   assert.equal(await readFile(`${root}/plow-checkpoints/group`, "utf8"), messages.at(-1)!.uid);
+});
+
+test("an omitted checkpointed chat recovers before its first live frame advances progress", async t => {
+  const { root, server, apiBase, abortAfter } = await websocketFixture(t);
+  const controller = abortAfter();
+  await mkdir(`${root}/plow-checkpoints`);
+  await writeFile(`${root}/plow-checkpoints/omitted`, "old");
+  const chat = { uid: "omitted", status: "active", participants: [{ type: "agent", relationship: "self", line: { uid: "line" } }] };
+  const incoming = (uid: string) => ({ uid, direction: "inbound", sender: { type: "member" } });
+  t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
+    url.endsWith("/chats") ? { data: [], has_more: true } :
+    url.endsWith("/chats/omitted") ? chat :
+    url.includes("limit=50") ? { data: [incoming("live"), incoming("missed"), incoming("old")], has_more: false } :
+    url.includes("/messages?") ? { data: [], has_more: false } : { ticket: "ticket" }));
+  server.on("connection", (socket: { send: (text: string) => void }) => socket.send(JSON.stringify({
+    event_type: "message_received", event_id: "live-event", chat_id: chat.uid, data: { message: incoming("live") },
+  })));
+  const delivered: string[] = [];
+  await listen({ ...account, apiBase, lineUid: "line" }, controller.signal, () => {}, async (_chat, message) => {
+    delivered.push(message.uid);
+    if (message.uid === "live") controller.abort();
+    return "completed";
+  });
+  assert.deepEqual(delivered, ["missed", "live"]);
+  assert.equal(await readFile(`${root}/plow-checkpoints/omitted`, "utf8"), "live");
+});
+
+test("optional history failure still dispatches the message with empty history", async t => {
+  const { root, server, apiBase, abortAfter } = await websocketFixture(t);
+  const controller = abortAfter();
+  const chat = { uid: "chat", status: "active", participants: [{ type: "agent", relationship: "self", line: { uid: "line" } }] };
+  const inbound = { uid: "inbound", direction: "inbound", sender: { type: "member" } };
+  let historyReads = 0;
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    if (url.includes("limit=20")) return ++historyReads === 1
+      ? new Response(null, { status: 503 })
+      : Response.json({ data: [inbound], has_more: false });
+    return Response.json(url.endsWith("/chats") ? { data: [chat], has_more: false } :
+      url.endsWith("/chats/chat") ? chat : url.includes("/messages?") ? { data: [], has_more: false } : { ticket: "ticket" });
+  });
+  server.on("connection", (socket: { send: (text: string) => void }) => socket.send(JSON.stringify({
+    event_type: "message_received", event_id: "event", chat_id: chat.uid, data: { message: inbound },
+  })));
+  const delivered: string[] = [];
+  const histories: Message[][] = [];
+  const logs: string[] = [];
+  await listen({ ...account, apiBase, lineUid: "line" }, controller.signal, text => {
+    logs.push(text);
+    if (text.startsWith("acked") && delivered.length === 2) controller.abort();
+  }, async (_chat, message, _first, history) => {
+    delivered.push(message.uid);
+    histories.push(history);
+    if (delivered.length === 1) for (const socket of server.clients) socket.send(JSON.stringify({
+      event_type: "message_received", event_id: "second", chat_id: chat.uid, data: { message: { ...inbound, uid: "second" } },
+    }));
+    return "completed";
+  });
+  assert.deepEqual(delivered, ["inbound", "second"]);
+  assert.equal(historyReads, 2);
+  assert.deepEqual(histories, [[], [inbound]]);
+  assert.ok(logs.some(text => text.includes("history") && text.includes("failed")));
+  assert.equal(await readFile(`${root}/plow-checkpoints/chat`, "utf8"), "second");
+});
+
+test("reconnecting does not re-inject history into an already contextualized chat", { timeout: 40_000 }, async t => {
+  const { server, apiBase } = await websocketFixture(t);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 35_000);
+  t.after(() => { clearTimeout(timeout); controller.abort(); });
+  const chat = { uid: "chat", status: "active", participants: [{ type: "agent", relationship: "self", line: { uid: "line" } }] };
+  let historyReads = 0;
+  let connections = 0;
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    if (url.includes("limit=20")) historyReads++;
+    return Response.json(url.endsWith("/chats") ? { data: [chat], has_more: false } :
+      url.endsWith("/chats/chat") ? chat : url.includes("/messages?") ? { data: [], has_more: false } : { ticket: "ticket" });
+  });
+  server.on("connection", (socket: { send: (text: string) => void }) => {
+    const uid = String(++connections);
+    socket.send(JSON.stringify({ event_type: "message_received", event_id: uid, chat_id: chat.uid,
+      data: { message: { uid, direction: "inbound", sender: { type: "member" } } } }));
+  });
+  const delivered: string[] = [];
+  await listen({ ...account, apiBase, lineUid: "line" }, controller.signal, () => {}, async (_chat, message) => {
+    delivered.push(message.uid);
+    if (delivered.length === 1) for (const socket of server.clients) socket.close();
+    else controller.abort();
+    return "completed";
+  });
+  assert.deepEqual(delivered, ["1", "2"]);
+  assert.equal(historyReads, 1);
 });

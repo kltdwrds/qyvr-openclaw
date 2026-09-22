@@ -37,12 +37,14 @@ for (const toolName of ["plow_start_thread", "message"]) {
       registerChannel(value: { plugin: typeof channel }) { channel = value.plugin; },
       registerTool(factory: (context: object) => Tool) { const candidate = factory({ config: cfg }); if (candidate.name === toolName) tool = candidate; },
       runtime: { channel: { routing: { resolveAgentRoute: () => ({ sessionKey: "main" }) }, inbound: {
-        buildContext: async () => ({}), dispatch: async () => {
+        buildContext: async () => ({}), dispatch: async ({ replyOptions }: { replyOptions: { onAgentRunTerminalOutcome: (outcome: string) => void } }) => {
           for (let retry = 0; retry < 4; retry++) {
             try { results.push(await (toolName === "message" ? channel!.outbound.sendText({ cfg, accountId: "chat", to: "target", text: "Meet Friday?" }) : tool.execute(`call-${retry}`, { members: retry === 3 ? ["+15550000003"] : retry === 1 ? ["+15550000001", "+15550000002"] : ["+15550000002", "+15550000001"], chat_uid: "home", body: retry === 2 ? "Meet Saturday?" : "Meet Friday?" }))); }
             catch (error) { errors.push((error as Error).message); }
           }
+          replyOptions.onAgentRunTerminalOutcome("completed");
           if (++turns === 2) controller.abort();
+          if (status === 503) throw new Error("dispatch failed after uncertain delivery");
           return { dispatched: true, dispatchResult: { deliberateSilentTerminalReply: true } };
         },
       } } },
