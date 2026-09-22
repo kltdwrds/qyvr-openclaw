@@ -53,20 +53,20 @@ Local runs also supply `PLOW_AGENT_TOKEN`. On a cloud host that injects the
 credential, an absent or empty token becomes the placeholder `proxied`.
 The boot process does not read a credential file itself.
 
-Boot opens one Plow WebSocket before looking up identity, even on a line with
-no chat. It holds that connection until an inbound message arrives, then fetches
-identity once and starts OpenClaw. The handshake and outbound events do not
+Boot fetches identity once. If the owner's chat already exists, it starts
+OpenClaw immediately, including on restart. Only a line without the owner's
+chat opens a Plow WebSocket and waits for an inbound message, then fetches
+identity again and starts OpenClaw. The handshake and outbound events do not
 wake boot. There is no identity polling or periodic socket renewal. Failed
 connections retry with backoff from one second up to sixty seconds; ticket and
 WebSocket setup each have a ten-second timeout. A healthy idle socket has no
 hold timeout. Boot uses Node's native WebSocket client, independently of the
 channel plugin.
 
-Restarts also wait for the next inbound message. Messages sent before the socket
-subscribes do not wake it; after a new inbound message starts the gateway, the
-channel recovers from existing checkpoints. A new checkpoint starts at the
-waking message so older answered history is not replayed. No setup greeting
-is sent. A failed identity lookup parks boot without polling.
+When waiting for first contact, messages sent before the socket subscribes do
+not wake it. A new checkpoint starts at the waking message so older answered
+history is not replayed. Existing checkpoints are preserved on restart. No
+setup greeting is sent. A failed identity lookup parks boot without polling.
 
 Boot renders OpenClaw configuration and the workspace prompt under
 `/var/lib/plow`, which Compose persists. The config uses environment references

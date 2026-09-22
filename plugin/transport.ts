@@ -113,7 +113,11 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
   while (!signal.aborted) {
     let socket: WebSocket | undefined;
     let heartbeat: ReturnType<typeof setInterval> | undefined;
-    const abort = () => socket?.terminate();
+    const abort = () => {
+      // Cancelling a pending upgrade emits an error after the abort listeners are removed.
+      if (socket?.readyState === WebSocket.CONNECTING) socket.once("error", () => {});
+      socket?.terminate();
+    };
     try {
       const { ticket } = await request<{ ticket: string }>(account, "/ws/ticket", {});
       socket = new WebSocket(`${account.apiBase.replace(/^http/, "ws")}/v1/ws?ticket=${encodeURIComponent(ticket)}`);
@@ -192,7 +196,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
     } finally {
       clearInterval(heartbeat);
       signal.removeEventListener("abort", abort);
-      socket?.terminate();
+      abort();
     }
     if (!signal.aborted) await delay(Math.min(30_000 * 2 ** attempt++, 300_000), undefined, { signal }).catch(error => { if (!signal.aborted) throw error; });
   }
