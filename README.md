@@ -93,6 +93,10 @@ Groups use their own history and omit root MEMORY.md. Cross-conversation recall
 is disabled, and native session tools cannot read unrelated conversations from
 group or peer sessions. Shared files and tools are not privacy boundaries.
 
+## Team image
+
+For a shared agent with per-person browser access, see [the teammate image](teammate/README.md).
+
 ## Development
 
 See [development checks and pinned source contracts](docs/development.md).

@@ -10,5 +10,8 @@
   },
   "workspaces": [
     "plugin"
-  ]
+  ],
+  "dependencies": {
+    "jose": "6.2.12"
+  }
 }

@@ -1,4 +1,4 @@
-export async function renderPrompt(prompt: string, mcpUrl: string | null | undefined, token: string): Promise<string> {
+export async function renderPrompt(prompt: string, mcpUrl: string | null | undefined, token: string, mac = "your owner's Mac"): Promise<string> {
   if (!mcpUrl) return prompt;
   try {
     const response = await fetch(mcpUrl, {
@@ -20,7 +20,7 @@ export async function renderPrompt(prompt: string, mcpUrl: string | null | undef
       : raw;
     const instructions = JSON.parse(body).result?.instructions;
     if (typeof instructions !== "string" || !instructions.trim()) throw new Error("No Latch instructions");
-    return `${prompt}\nInstructions from your owner's Mac through Latch (up to 8,000 characters):\n\n\`\`\`text\n${instructions.slice(0, 8_000)}\n\`\`\`\n`;
+    return `${prompt}\nInstructions from ${mac} through Latch (up to 8,000 characters):\n\n\`\`\`text\n${instructions.slice(0, 8_000)}\n\`\`\`\n`;
   } catch {
     // A disconnected Mac must not prevent texting or preserve stale instructions.
     console.warn("plow-boot: Latch instructions unavailable; continuing with the base prompt");
