@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { once } from "node:events";
+import { createServer } from "node:http";
 import { websocketFixture } from "./ws-fixture.ts";
 import fs, { mkdir, readFile, writeFile } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
@@ -152,7 +153,7 @@ for (const outcome of ["completed", "incomplete"] as const) test(`unknown delive
   assert.equal(await readFile(`${root}/plow-checkpoints/chat`, "utf8"), outcome === "completed" ? "next" : "uncertain");
 });
 
-for (const scenario of ["waited", "pending", "buffered", "buffered-before-read", "buffered-after-read", "interrupted", "answered", "peer", "group", "fresh"]) test(`first contact and restart: ${scenario}`, async t => {
+for (const scenario of ["waited", "pending", "buffered", "buffered-before-read", "buffered-after-read", "two-during-baseline", "two-during-history", "interrupted", "answered", "peer", "group", "fresh"]) test(`first contact and restart: ${scenario}`, async t => {
   const { root, server, apiBase, abortAfter } = await websocketFixture(t);
   if (scenario === "waited") {
     await mkdir(`${root}/plow-checkpoints`);
@@ -165,16 +166,18 @@ for (const scenario of ["waited", "pending", "buffered", "buffered-before-read",
     sender: scenario === "peer" ? { type: "agent", relationship: "peer", line: { uid: "peer" } } : sender };
   const older = { ...first, uid: "older" };
   const newer = { ...first, uid: "newer" };
-  const twoMessages = ["buffered-before-read", "buffered-after-read"].includes(scenario);
+  const twoMessages = ["buffered-before-read", "buffered-after-read", "two-during-baseline", "two-during-history"].includes(scenario);
   let boot = 0;
   if (["buffered", "fresh", "interrupted"].includes(scenario)) server.on("connection", (socket: { send: (text: string) => void }) => {
     if (scenario !== "interrupted" || !boot) socket.send(JSON.stringify({ event_type: "message_received", event_id: "first", chat_id: "home", data: { message: first } }));
   });
   t.mock.method(globalThis, "fetch", async (url: string) => {
     if (!boot && ((scenario === "buffered-before-read" && url.endsWith("/chats")) ||
-      (scenario === "buffered-after-read" && url.includes("limit=1")))) {
+      (scenario === "buffered-after-read" && url.includes("limit=1")) ||
+      (scenario === "two-during-baseline" && url.includes("limit=1")) ||
+      (scenario === "two-during-history" && url.includes("limit=20")))) {
       for (const socket of server.clients) {
-        for (const message of scenario === "buffered-before-read" ? [first, newer] : [newer]) {
+        for (const message of scenario === "buffered-after-read" ? [newer] : [first, newer]) {
           socket.send(JSON.stringify({ event_type: "message_received", event_id: message.uid, chat_id: "home", data: { message } }));
         }
         // A pong confirms the client has processed the preceding frames.
@@ -186,7 +189,7 @@ for (const scenario of ["waited", "pending", "buffered", "buffered-before-read",
     return Response.json(
       url.endsWith("/chats") ? { data: scenario === "fresh" || (scenario === "interrupted" && !boot) ? [] : [chat], has_more: false } :
       url.endsWith("/chats/home") ? chat : url.includes("/messages?") ? {
-        data: url.includes("limit=1") ? [scenario === "buffered-before-read" ? newer : first] :
+        data: url.includes("limit=1") ? [["buffered-before-read", "two-during-baseline"].includes(scenario) ? newer : first] :
           scenario === "waited" ? [first] : twoMessages ? [newer, first, older] : [first, older], has_more: false,
       } : { ticket: "ticket" });
   });
@@ -457,4 +460,41 @@ test("ambiguous owner chats stop until restart instead of repeatedly discovering
   });
   assert.ok(logs.includes("Expected one owner's chat; found 2; stopped until restart"));
   assert.equal(tickets, 1);
+});
+
+test("a stalled WebSocket upgrade times out and reconnects after backoff", { timeout: 55_000 }, async t => {
+  const { abortAfter } = await websocketFixture(t);
+  const controller = abortAfter(50_000);
+  const server = createServer();
+  const sockets = new Set<import("node:net").Socket>();
+  server.on("connection", socket => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+  });
+  let upgrades = 0;
+  let firstClosed = false;
+  const started = Date.now();
+  server.on("upgrade", (_request, socket) => {
+    upgrades++;
+    if (upgrades === 1) socket.on("end", () => { firstClosed = true; socket.end(); });
+    else controller.abort();
+    // Read EOF so the fixture observes the client aborting the pending upgrade.
+    socket.resume();
+    // Accept TCP, but deliberately never answer the HTTP upgrade.
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(async () => {
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  });
+  const address = server.address() as import("node:net").AddressInfo;
+  t.mock.method(globalThis, "fetch", async () => Response.json({ ticket: "ticket" }));
+  const logs: string[] = [];
+  await listen({ ...account, apiBase: `http://127.0.0.1:${address.port}` }, controller.signal,
+    text => logs.push(text), async () => assert.fail("An unopened socket cannot dispatch"));
+  assert.equal(upgrades, 2, "must retry the stalled upgrade");
+  assert.equal(firstClosed, true, "must abort the stalled connection");
+  assert.ok(Date.now() - started >= 45_000, "15s handshake bound plus normal 30s backoff");
+  assert.ok(logs.some(text => text.startsWith("transport stopped:")));
 });

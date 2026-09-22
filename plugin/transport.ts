@@ -1,3 +1,12 @@
+/*
+ * Checkpoints are per chat; after baseline initialization, progress advances only
+ * once a turn finishes, never backwards. Shutdown-interrupted turns stay unacked;
+ * terminal failures and uncertain sends are deliberately acknowledged without retry.
+ * first:<uid> requests inclusive replay from uid. Recovery and buffered frames
+ * dispatch in arrival order within each chat. Completed turns have at-least-once
+ * recovery across restart: a crash between send and ack can replay at most one
+ * completed turn, potentially duplicating its reply.
+ */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { on, once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
@@ -157,15 +166,18 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
     };
     try {
       const { ticket } = await request<{ ticket: string }>(account, "/ws/ticket", {});
-      socket = new WebSocket(`${account.apiBase.replace(/^http/, "ws")}/v1/ws?ticket=${encodeURIComponent(ticket)}`);
+      socket = new WebSocket(`${account.apiBase.replace(/^http/, "ws")}/v1/ws?ticket=${encodeURIComponent(ticket)}`, { handshakeTimeout: 15_000 });
       let unauthorized = false;
       socket.on("unexpected-response", (_request, response) => socket!.emit("error", new HttpError(response.statusCode!)));
       socket.on("close", code => { unauthorized = code === 4401; });
       const frames = on(socket, "message", { signal, close: ["close"] });
-      const bufferedChats = new Map<string, string>();
+      const bufferedChats = new Map<string, Set<string>>();
       const trackBufferedChat = (raw: WebSocket.RawData) => {
         const event = JSON.parse(raw.toString());
-        if (event.event_type === "message_received" && !bufferedChats.has(event.chat_id)) bufferedChats.set(event.chat_id, event.data.message.uid);
+        if (event.event_type !== "message_received") return;
+        let messages = bufferedChats.get(event.chat_id);
+        if (!messages) bufferedChats.set(event.chat_id, messages = new Set());
+        messages.add(event.data.message.uid);
       };
       socket.on("message", trackBufferedChat);
       signal.addEventListener("abort", abort, { once: true });
@@ -191,16 +203,20 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
           try { checkpoint = await readFile(`${dir}/${chat.uid}`, "utf8"); }
           catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-            const buffered = bufferedChats.get(chat.uid);
+            const bufferedBeforeRead = bufferedChats.get(chat.uid)?.values().next().value;
             const page = await request<Page<Message>>(account, `/chats/${chat.uid}/messages?limit=1`);
             const newest = page.data[0];
             checkpoint = chat.uid === owner?.uid && newest?.direction === "inbound" && newest.sender.type === "member"
               ? `first:${newest.uid}` : newest?.uid ?? "";
-            if (buffered) checkpoint = `first:${buffered}`;
+            const buffered = bufferedChats.get(chat.uid);
+            // A pending message absent from the live buffer predates those frames.
+            const first = bufferedBeforeRead ?? (!checkpoint.startsWith("first:") || buffered?.has(newest.uid)
+              ? buffered?.values().next().value : undefined);
+            if (first) checkpoint = `first:${first}`;
             await ack(chat.uid, checkpoint);
             // Late frames can include an exclusive baseline, but must not replace pending first contact.
             if (!checkpoint.startsWith("first:") && bufferedChats.has(chat.uid)) {
-              checkpoint = `first:${bufferedChats.get(chat.uid)}`;
+              checkpoint = `first:${bufferedChats.get(chat.uid)!.values().next().value}`;
               await ack(chat.uid, checkpoint);
             }
           }
