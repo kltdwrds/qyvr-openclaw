@@ -30,9 +30,16 @@ configuration. Plow must ensure the creator is the first person to reach a fresh
 host. `PLOW_CREATOR_ID` is deployment metadata from Plow, never a caller-selected
 admin or a roster-entry ID. The adapter runs with the gateway; its process exits
 if the gateway exits. The persistent volume retains native profiles and devices. Team boot creates config
-and instructions only when absent, preserving customization. If deployment identity
-or origin changes, update the persisted gateway configuration to match before
-restarting. Public assertion keys reload from the mounted file on restart.
+and instructions only when absent, preserving customization. Image upgrades that
+change generated config or the teammate prompt require a fresh state volume;
+restarting with the old volume does not apply those changes. In particular, a
+volume created before the role override was removed still has that override,
+and an existing AGENTS.md does not gain new delivery instructions. Back up any
+state you need, provision a new empty volume, and reapply only intentional builder
+customizations; do not copy the old generated config or prompt wholesale. A fresh
+volume also resets profiles, devices, sessions and memory. Deployment identity or
+origin changes likewise require fresh configuration. Public assertion keys reload
+from the mounted file on restart.
 
 ## Assertion contract
 

@@ -57,3 +57,8 @@ test("the prompt directs existing-chat sends to the native tool", () => {
   assert.match(prompt, /accountId/);
   assert.match(prompt, /plow_start_thread/);
 });
+
+test("teammate instructions explain automatic delivery for routed dashboard turns", async () => {
+  const teammate = await readFile(new URL("../prompt/teammate/AGENTS.md", import.meta.url), "utf8");
+  assert.match(teammate, /dashboard turn.*Plow conversation.*same chat.*deliver: true.*normal reply.*automatically delivered to that chat/);
+});
