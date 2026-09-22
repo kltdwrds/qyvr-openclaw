@@ -46,7 +46,7 @@ export async function* inboundEvents(base: string, token: string): AsyncGenerato
       // A pending upgrade emits an error when terminated.
       socket?.on("error", () => {});
       socket?.terminate();
-      await frames?.return();
+      await frames?.return?.();
     }
     await sleep(backoff);
     backoff = Math.min(backoff * 2, 60_000);
