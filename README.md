@@ -38,15 +38,17 @@ docker compose logs -f agent
 ```
 
 To expose the owner dashboard through Plow's private proxy, set
-`PLOW_DASHBOARD=1` in the agent's environment at provision time. The gateway
-serves the dashboard on `127.0.0.1:18789` inside the host. Without the variable,
+`PLOW_DASHBOARD_ORIGIN=https://<agent-uid>.agents.plow.co` in the agent's
+environment at provision time. The gateway serves the dashboard on
+`127.0.0.1:3000` inside the host. Without the variable,
 the Control UI stays disabled and the gateway keeps its loopback token config.
 The proxy must remove browser-supplied `X-Plow-*`, `X-Forwarded-*`, `Forwarded`,
 and `X-Real-IP`, then set `X-Plow-User` to the authenticated owner's Plow user
 UID and `X-Forwarded-For` to the browser's non-loopback address. The UID is an
 account identifier, not a phone number or a dashboard display name.
-The dashboard accepts WebSocket requests whose `Origin` matches the request
-`Host`; the proxy must preserve that same-host pairing.
+The dashboard accepts WebSocket requests only from `PLOW_DASHBOARD_ORIGIN`.
+The proxy preserves that browser `Origin` but replaces `Host` with the VM's
+upstream host.
 
 For a local Plow API, use the CLI's `--api-base` option and mint with
 `--agent-api-base` set to an address the container can reach, such as

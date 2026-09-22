@@ -5,9 +5,9 @@ import { renderConfig } from "./config.js";
 import { startGateway } from "./process.js";
 
 process.env.PLOW_AGENT_TOKEN = "probe-" + randomBytes(16).toString("hex");
-if (process.env.PLOW_DASHBOARD === "1") delete process.env.OPENCLAW_GATEWAY_TOKEN;
+if (process.env.PLOW_DASHBOARD_ORIGIN) delete process.env.OPENCLAW_GATEWAY_TOKEN;
 else process.env.OPENCLAW_GATEWAY_TOKEN = randomBytes(32).toString("hex");
-const config = renderConfig(probeIdentity, "http://127.0.0.1:1", process.env.PLOW_DASHBOARD === "1");
+const config = renderConfig(probeIdentity, "http://127.0.0.1:1", process.env.PLOW_DASHBOARD_ORIGIN);
 await mkdir("/var/lib/plow/workspace", { recursive: true });
 const serialized = JSON.stringify(config, null, 2);
 if ([process.env.PLOW_AGENT_TOKEN, process.env.OPENCLAW_GATEWAY_TOKEN].some(token => token && serialized.includes(token))) {

@@ -112,23 +112,21 @@ test("the base image uses boot-owned config without the OpenClaw browser UI", ()
   assert.deepEqual(config.meta, {});
 });
 
-test("without PLOW_DASHBOARD, config remains byte-identical to main", () => {
-  const rendered = JSON.stringify(renderConfig(identity, "http://api:8000", false), null, 2) + "\n";
+test("without PLOW_DASHBOARD_ORIGIN, config remains byte-identical to main", () => {
+  const rendered = JSON.stringify(renderConfig(identity, "http://api:8000"), null, 2) + "\n";
   assert.equal(createHash("sha256").update(rendered).digest("hex"), "2f30f966922de7b9a211350d32cb4e6bb8993c9c4f42d7126457f9bbbf9e7a94");
 });
 
-test("PLOW_DASHBOARD uses owner-only trusted proxy authentication", () => {
-  const config = renderConfig(identity, "http://api:8000", true);
+test("PLOW_DASHBOARD_ORIGIN uses the proxy's port and exact browser origin", () => {
+  const config = renderConfig(identity, "http://api:8000", "https://d658f8f5ab5882ad5edf5a5fd607d198.agents.plow.co");
   assert.deepEqual(config.gateway, {
-    mode: "local", bind: "loopback", controlUi: { enabled: true, dangerouslyAllowHostHeaderOriginFallback: true },
+    mode: "local", bind: "loopback", port: 3000,
+    controlUi: { enabled: true, allowedOrigins: ["https://d658f8f5ab5882ad5edf5a5fd607d198.agents.plow.co"] },
     auth: { mode: "trusted-proxy", trustedProxy: {
       userHeader: "x-plow-user", allowLoopback: true,
       deviceAutoApprove: { enabled: true, scopes: ["operator.admin"] },
     } },
     trustedProxies: ["127.0.0.1"],
-    roles: { default: "owner", definitions: { owner: {
-      sessions: { others: "write" }, agents: "*", scopes: ["operator.admin"],
-    } } },
     reload: { mode: "off" },
   });
 });
