@@ -9,10 +9,11 @@ try {
   const base = process.env.PLOW_API_BASE?.replace(/\/$/, "");
   if (!base) throw new Error("PLOW_API_BASE is required");
   process.env.PLOW_AGENT_TOKEN ||= "proxied";
-  process.env.OPENCLAW_GATEWAY_TOKEN = randomBytes(32).toString("hex");
+  if (process.env.PLOW_DASHBOARD === "1") delete process.env.OPENCLAW_GATEWAY_TOKEN;
+  else process.env.OPENCLAW_GATEWAY_TOKEN = randomBytes(32).toString("hex");
   process.env.PLOW_MCP_BRIDGE_TOKEN = randomBytes(32).toString("hex");
   const identity = await identityFromApi(base, process.env.PLOW_AGENT_TOKEN);
-  const config = renderConfig(identity, base);
+  const config = renderConfig(identity, base, process.env.PLOW_DASHBOARD === "1");
   await mkdir("/var/lib/plow/workspace", { recursive: true });
   for (const name of ["BOOTSTRAP.md", "SOUL.md", "IDENTITY.md", "USER.md"]) {
     await rm(`/var/lib/plow/workspace/${name}`, { force: true });

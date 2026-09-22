@@ -8,14 +8,25 @@ export type Identity = {
   mcp_url?: string | null;
 };
 
-export function renderConfig(identity: Identity, apiBase: string) {
+export function renderConfig(identity: Identity, apiBase: string, dashboard = false) {
   const name = identity.agent?.name;
   if (typeof name !== "string" || !name.trim()) throw new Error(`Identity has no usable agent.name: ${JSON.stringify(name)}`);
   const email = identity.chats.flatMap(chat => chat.participants).find(p =>
     p.type === "agent" && p.relationship === "self" && p.line.provider_type === "email");
   return {
     meta: {},
-    gateway: { mode: "local", bind: "loopback", controlUi: { enabled: false }, auth: { mode: "token", token: "${OPENCLAW_GATEWAY_TOKEN}" }, reload: { mode: "off" } },
+    gateway: dashboard ? {
+      mode: "local", bind: "loopback", controlUi: { enabled: true, dangerouslyAllowHostHeaderOriginFallback: true },
+      auth: { mode: "trusted-proxy", trustedProxy: {
+        userHeader: "x-plow-user", allowLoopback: true,
+        deviceAutoApprove: { enabled: true, scopes: ["operator.admin"] },
+      } },
+      trustedProxies: ["127.0.0.1"],
+      roles: { default: "owner", definitions: { owner: {
+        sessions: { others: "write" }, agents: "*", scopes: ["operator.admin"],
+      } } },
+      reload: { mode: "off" },
+    } : { mode: "local", bind: "loopback", controlUi: { enabled: false }, auth: { mode: "token", token: "${OPENCLAW_GATEWAY_TOKEN}" }, reload: { mode: "off" } },
     models: { providers: { plow: {
       baseUrl: `${apiBase}/v1`, apiKey: "${PLOW_AGENT_TOKEN}", api: "openai-completions", authHeader: true,
       request: { allowPrivateNetwork: true },

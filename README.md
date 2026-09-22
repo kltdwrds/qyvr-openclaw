@@ -37,6 +37,17 @@ docker compose up --build -d
 docker compose logs -f agent
 ```
 
+To expose the owner dashboard through Plow's private proxy, set
+`PLOW_DASHBOARD=1` in the agent's environment at provision time. The gateway
+serves the dashboard on `127.0.0.1:18789` inside the host. Without the variable,
+the Control UI stays disabled and the gateway keeps its loopback token config.
+The proxy must remove browser-supplied `X-Plow-*`, `X-Forwarded-*`, `Forwarded`,
+and `X-Real-IP`, then set `X-Plow-User` to the authenticated owner's Plow user
+UID and `X-Forwarded-For` to the browser's non-loopback address. The UID is an
+account identifier, not a phone number or a dashboard display name.
+The dashboard accepts WebSocket requests whose `Origin` matches the request
+`Host`; the proxy must preserve that same-host pairing.
+
 For a local Plow API, use the CLI's `--api-base` option and mint with
 `--agent-api-base` set to an address the container can reach, such as
 `http://host.docker.internal:PORT`.
@@ -90,6 +101,13 @@ client disconnects cancel the upstream request. A bridge crash restarts the
 bridge while the gateway continues.
 
 ## Trust
+
+Dashboard access relies on Plow's proxy admitting only the owner. Every
+identity that reaches this gateway through that proxy receives admin access;
+`GET /v1/agents/me` does not provide the owner's account UID for a narrower
+gateway grant. Any process on the same host, including the agent's shell, can
+forge `X-Plow-User` over loopback. Keep direct gateway access limited to the
+host's loopback interface.
 
 This agent does not isolate hostile users. Every turn retains its tools; the
 model judges authority from the fetched roster, trust flag, conversation and
