@@ -12,11 +12,17 @@ test("a checkpointed outbound opener still seeds the first group turn", async t 
   const chat = { uid: "group", status: "active", trusted: true, participants: [self, sender, { ...sender, uid: "owner", role: "owner" }] };
   const message = (uid: string, body: string, author = sender) => ({ uid, body, sender: author, direction: "inbound", attachments: [], created_at: "2026-09-19T12:00:00Z" });
   const opener = { ...message("opener", "I'm Flicker. Lunch at Pine Cafe: 12:30 or 12:45?"), sender: self, direction: "outbound" };
+  const messages = [opener, message("reply", "Let's do 12:45"), message("thanks", "Thanks")];
+  let recoveryReads = 0;
   const fetch = t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
     url.endsWith("/chats") ? { data: [], has_more: false } : url.endsWith("/chats/group") ? chat :
+    url.includes("limit=50") ? {
+      data: [...(recoveryReads++ ? [...messages].reverse() : [opener]), message("older", "Let's plan lunch")],
+      has_more: false,
+    } :
     url.includes("/messages?") ? { data: [opener, message("older", "Let's plan lunch")], has_more: true } : { ticket: "ticket" }));
   server.on("connection", (socket: { send: (text: string) => void }) => {
-    for (const msg of [opener, message("reply", "Let's do 12:45"), message("thanks", "Thanks")])
+    for (const msg of messages)
       socket.send(JSON.stringify({ event_type: "message_received", event_id: msg.uid, chat_id: chat.uid, data: { message: msg } }));
   });
   const contexts: { message: { inboundHistory?: unknown[] }; supplemental: { channelStructuredContext: { payload: { participants: unknown[] } }[] } }[] = [];
@@ -45,8 +51,8 @@ test("a checkpointed outbound opener still seeds the first group turn", async t 
     { sender: "You (assistant)", body: opener.body, timestamp: Date.parse(opener.created_at), messageId: "opener" },
   ]);
   assert.deepEqual(contexts[1].message.inboundHistory, []);
-  assert.deepEqual(fetch.mock.calls.map(call => String(call.arguments[0])).filter(url => url.includes("/messages?")),
-    [`${apiBase}/v1/chats/group/messages?limit=50`, `${apiBase}/v1/chats/group/messages?limit=20&starting_after=reply`]);
+  assert.deepEqual(fetch.mock.calls.map(call => String(call.arguments[0])).filter(url => url.includes("limit=20")),
+    [`${apiBase}/v1/chats/group/messages?limit=20&starting_after=reply`]);
   const facts = contexts[0].supplemental.channelStructuredContext[0].payload;
   assert.deepEqual(facts.participants[0], { name: "Juniper", type: "agent", role: "self" });
 });

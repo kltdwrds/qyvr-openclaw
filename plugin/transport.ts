@@ -3,9 +3,9 @@
  * once a turn finishes, never backwards. Shutdown-interrupted turns stay unacked;
  * terminal failures and uncertain sends are deliberately acknowledged without retry.
  * first:<uid> requests inclusive replay from uid. Recovery and buffered frames
- * dispatch in arrival order within each chat. Completed turns have at-least-once
- * recovery across restart: a crash between send and ack can replay at most one
- * completed turn, potentially duplicating its reply.
+ * dispatch in history order within each chat; stale live frames are ignored.
+ * Completed turns have at-least-once recovery across restart: a crash between
+ * send and ack can replay at most one completed turn, duplicating its reply.
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { on, once } from "node:events";
@@ -110,8 +110,13 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
     await rename(`${dir}/${chat}.tmp`, `${dir}/${chat}`);
     checkpoints.set(chat, uid);
   };
-  const consume = async (chatUid: string, message: Message) => {
+  const consume = async (chatUid: string, message: Message, recovered = false) => {
     if (signal.aborted || seen.has(message.uid) || checkpoints.get(chatUid) === message.uid) return;
+    // Recovery batches are already ordered after their checkpoint. Live frames
+    // can lag behind HTTP history; use that same order before dispatch or ack.
+    const checkpointUid = checkpoints.get(chatUid)?.replace(/^first:/, "");
+    if (!recovered && checkpointUid && checkpointUid !== message.uid &&
+      (await recover(account, chatUid, message.uid)).some(newer => newer.uid === checkpointUid)) return;
     const chat = await request<Chat>(account, `/chats/${chatUid}`);
     if (!accepts(account, chat)) return;
     discovered.set(chat.uid, chat);
@@ -209,7 +214,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
             checkpoint = chat.uid === owner?.uid && newest?.direction === "inbound" && newest.sender.type === "member"
               ? `first:${newest.uid}` : newest?.uid ?? "";
             const buffered = bufferedChats.get(chat.uid);
-            // A pending message absent from the live buffer predates those frames.
+            // Preserve pending first contact unless its message is in the live buffer.
             const first = bufferedBeforeRead ?? (!checkpoint.startsWith("first:") || buffered?.has(newest.uid)
               ? buffered?.values().next().value : undefined);
             if (first) checkpoint = `first:${first}`;
@@ -229,7 +234,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       const recoveredChats = new Set<string>();
       const replay = async (chatUid: string) => {
         for (const message of await recover(account, chatUid, checkpoints.get(chatUid)!)) {
-          await consume(chatUid, message);
+          await consume(chatUid, message, true);
           replayed.add(message.uid);
         }
         recoveredChats.add(chatUid);

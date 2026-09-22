@@ -43,17 +43,19 @@ test("a truncated chat listing warns and keeps recovery and live delivery on the
   const chat = { uid: "group", status: "active", participants: [{ type: "agent", relationship: "self", line: { uid: "line" } }] };
   const missed = { uid: "missed", direction: "inbound", sender: { type: "member" } };
   let connections = 0;
+  let liveSent = false;
   server.on("connection", () => { connections++; });
   t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
     url.endsWith("/chats") ? { data: [chat], has_more: true } :
     url.endsWith("/chats/group") ? chat :
-    url.endsWith("/messages?limit=50") ? { data: [missed, { uid: "old" }], has_more: false } :
+    url.endsWith("/messages?limit=50") ? { data: [...(liveSent ? [{ ...missed, uid: "live" }] : []), missed, { uid: "old" }], has_more: false } :
     url.includes("/messages?") ? { data: [], has_more: false } : { ticket: "ticket" }));
   const received: string[] = [];
   const logs: string[] = [];
   await listen({ ...account, apiBase, lineUid: "line" }, controller.signal, text => logs.push(text), async (_chat, message) => {
     received.push(message.uid);
     if (message.uid === "missed") {
+      liveSent = true;
       for (const socket of server.clients) socket.send(JSON.stringify({
         event_type: "message_received", event_id: "live", chat_id: chat.uid, data: { message: { ...missed, uid: "live" } },
       }));
@@ -75,7 +77,7 @@ for (const owner of [false, true]) test(`a frame arriving while a synthesized ch
   const baseline = owner ? { ...message, uid: "pending" } : message;
   t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
     url.endsWith("/chats") ? { data: [chat], has_more: false } : url.endsWith("/chats/group") ? chat :
-    url.includes("/messages?") ? { data: [baseline], has_more: false } : { ticket: "ticket" }));
+    url.includes("/messages?") ? { data: injected && owner ? [message, baseline] : [baseline], has_more: false } : { ticket: "ticket" }));
   const originalWrite = fs.writeFile;
   let injected = false;
   const writer = t.mock.method(fs, "writeFile", async (...args: Parameters<typeof fs.writeFile>) => {
@@ -107,6 +109,7 @@ test("recovery beyond the seen cache does not replay buffered frames or rewind t
   await writeFile(`${root}/plow-checkpoints/group`, "old");
   const controller = abortAfter(30_000);
   const chat = { uid: "group", status: "active", participants: [{ type: "agent", relationship: "self", line: { uid: "line" } }] };
+  let historyReads = 0;
   const messages = Array.from({ length: 514 }, (_, i) => ({ uid: `message-${i}`, direction: "inbound", sender: { type: "member" } }));
   t.mock.method(globalThis, "fetch", async (url: string) => {
     if (url.includes("/messages?")) for (const socket of server.clients) {
@@ -114,7 +117,7 @@ test("recovery beyond the seen cache does not replay buffered frames or rewind t
       await new Promise<void>(resolve => { socket.once("pong", resolve); socket.ping(); });
     }
     return Response.json(url.endsWith("/chats") ? { data: [chat], has_more: false } : url.endsWith("/chats/group") ? chat :
-      url.includes("/messages?") ? { data: [...messages].reverse(), has_more: false } : { ticket: "ticket" });
+      url.includes("/messages?") ? { data: [...(++historyReads > 1 ? [{ ...messages[0], uid: "live" }] : []), ...[...messages].reverse()], has_more: false } : { ticket: "ticket" });
   });
   const received: string[] = [];
   await listen({ ...account, apiBase, lineUid: "line" }, controller.signal, () => {}, async (_chat, message) => {
@@ -497,4 +500,48 @@ test("a stalled WebSocket upgrade times out and reconnects after backoff", { tim
   assert.equal(firstClosed, true, "must abort the stalled connection");
   assert.ok(Date.now() - started >= 45_000, "15s handshake bound plus normal 30s backoff");
   assert.ok(logs.some(text => text.startsWith("transport stopped:")));
+});
+
+test("an older frame arriving during the baseline read cannot rewind first contact or replay it after restart", async t => {
+  const { root, server, apiBase, abortAfter } = await websocketFixture(t);
+  const fixture = { ...account, apiBase, lineUid: "line" };
+  const sender = { type: "member", uid: "owner", role: "owner", display_name: "Owner" };
+  const chat = { uid: "home", status: "active", participants: [
+    sender, { type: "agent", relationship: "self", line: { uid: "line" } },
+  ] };
+  // Equal timestamps still have a stable order in the API's history.
+  const messages = ["X", "Y"].map(uid => ({
+    uid, body: uid, direction: "inbound", sender, created_at: "2026-09-22T12:00:00Z",
+  }));
+  let boot = 0;
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    if ((!boot && url.endsWith("limit=1")) || (boot && url.endsWith("/chats"))) {
+      for (const socket of server.clients) {
+        socket.send(JSON.stringify({ event_type: "message_received", event_id: `X-${boot}`,
+          chat_id: chat.uid, data: { message: messages[0] } }));
+        const pong = once(socket, "pong");
+        socket.ping();
+        await pong;
+      }
+    }
+    if (url.endsWith("/chats")) return Response.json({ data: [chat], has_more: false });
+    if (url.endsWith("/chats/home")) return Response.json(chat);
+    if (url.includes("/messages?")) {
+      const cursor = new URL(url).searchParams.get("starting_after");
+      const newestFirst = [...messages].reverse();
+      return Response.json({ data: url.endsWith("limit=1") ? [messages[1]] :
+        cursor ? newestFirst.slice(newestFirst.findIndex(m => m.uid === cursor) + 1) : newestFirst,
+        has_more: false });
+    }
+    return Response.json({ ticket: "ticket" });
+  });
+  const turns: string[] = [];
+  for (; boot < 2; boot++) {
+    await listen(fixture, abortAfter().signal, () => {}, async (_chat, message) => {
+      turns.push(message.uid);
+      return "completed";
+    });
+    assert.deepEqual(turns, ["Y"], "only newest pending first contact is dispatched; older frames never follow it");
+    assert.equal(await readFile(`${root}/plow-checkpoints/home`, "utf8"), "Y");
+  }
 });
