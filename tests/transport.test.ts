@@ -432,3 +432,23 @@ test("owner discovery requires the unique active self-line DM with an owner", as
   t.mock.method(globalThis, "fetch", async () => Response.json({ data: [home], has_more: true }));
   await assert.rejects(ownerChat(fixture), /truncated/);
 });
+
+test("ambiguous owner chats stop until restart instead of repeatedly discovering them", { timeout: 40_000 }, async t => {
+  const { apiBase } = await websocketFixture(t);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 31_000);
+  t.after(() => { clearTimeout(timeout); controller.abort(); });
+  const participants = [
+    { type: "agent", relationship: "self", line: { uid: "line" } },
+    { type: "member", uid: "owner", role: "owner" },
+  ];
+  let tickets = 0;
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    if (url.endsWith("/ws/ticket")) { tickets++; return Response.json({ ticket: "ticket" }); }
+    return Response.json({ data: ["first", "second"].map(uid => ({ uid, status: "active", participants })), has_more: false });
+  });
+  await listen({ ...account, apiBase, lineUid: "line" }, controller.signal, () => {}, async () => {
+    assert.fail("Ambiguous owner chats must not dispatch");
+  });
+  assert.equal(tickets, 1);
+});

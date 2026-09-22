@@ -42,11 +42,13 @@ export function accepts(account: Account, chat: Chat): boolean {
   return chat.status === "active" && chat.participants.some(p => p.type === "agent" && p.relationship === "self" && p.line.uid === line);
 }
 
+class AmbiguousOwnerChatError extends Error {}
+
 export function findOwnerChat(account: Account, chats: Chat[]): Chat | undefined {
   const owners = chats.filter(chat => chat.status === "active" && chat.participants.length === 2 &&
     chat.participants.some(p => p.type === "agent" && p.relationship === "self" && p.line.uid === account.lineUid) &&
     chat.participants.some(p => p.type === "member" && p.role === "owner"));
-  if (owners.length > 1) throw new Error(`Expected one owner's chat; found ${owners.length}`);
+  if (owners.length > 1) throw new AmbiguousOwnerChatError(`Expected one owner's chat; found ${owners.length}`);
   return owners[0];
 }
 
@@ -233,8 +235,10 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       if (unauthorized) throw new HttpError(401);
     } catch (error) {
       if (signal.aborted) break;
-      if (error instanceof HttpError && error.status === 401) {
+      if (error instanceof AmbiguousOwnerChatError || (error instanceof HttpError && error.status === 401)) {
         log(error.message + "; stopped until restart");
+        clearInterval(heartbeat);
+        abort();
         await once(signal, "abort");
         break;
       }
