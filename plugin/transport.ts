@@ -106,8 +106,8 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
     if (seen.size > 512) seen.delete(seen.values().next().value!);
   };
   const ack = async (chat: string, uid: string) => {
-    await writeFile(`${dir}/${chat}.tmp`, uid);
-    await rename(`${dir}/${chat}.tmp`, `${dir}/${chat}`);
+    await writeFile(`${dir}/${encodeURIComponent(chat)}.tmp`, uid);
+    await rename(`${dir}/${encodeURIComponent(chat)}.tmp`, `${dir}/${encodeURIComponent(chat)}`);
     checkpoints.set(chat, uid);
   };
   const consume = async (chatUid: string, message: Message, recovered = false) => {
@@ -233,7 +233,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
         for (const chat of chats) {
           if (checkpoints.has(chat.uid)) continue;
           let checkpoint: string;
-          try { checkpoint = await readFile(`${dir}/${chat.uid}`, "utf8"); }
+          try { checkpoint = await readFile(`${dir}/${encodeURIComponent(chat.uid)}`, "utf8"); }
           catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
             const bufferedBeforeRead = bufferedChats.get(chat.uid)?.values().next().value;
@@ -274,10 +274,15 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       for await (const [raw] of frames) {
         const event = JSON.parse(raw.toString());
         if (event.event_type !== "message_received" || seen.has(event.event_id) || replayed.has(event.data.message.uid)) continue;
+        if (account.accountId === "email") {
+          await consume(event.chat_id, event.data.message);
+          remember(event.event_id);
+          continue;
+        }
         // Persist discovery before queueing: a dropped connection discards unstarted work.
         if (account.accountId === "chat" && !checkpoints.has(event.chat_id)) {
           let checkpoint: string;
-          try { checkpoint = await readFile(`${dir}/${event.chat_id}`, "utf8"); }
+          try { checkpoint = await readFile(`${dir}/${encodeURIComponent(event.chat_id)}`, "utf8"); }
           catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
             checkpoint = `first:${event.data.message.uid}`;
