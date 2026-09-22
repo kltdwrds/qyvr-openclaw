@@ -104,15 +104,9 @@ for (const name of [undefined, null, "", "  "]) test(`missing agent name is not 
   assert.throws(() => renderConfig({ ...identity, agent: { name } }, "http://api:8000"), /no usable agent.name/);
 });
 
-test("the base image does not serve the OpenClaw browser UI", () => {
-  assert.equal(renderConfig(identity, "http://api:8000").gateway.controlUi?.enabled, false);
-});
-
-test("Plow identity does not start OpenClaw's generic naming bootstrap", () => {
+test("the base image uses boot-owned config without the OpenClaw browser UI", () => {
   const config = renderConfig(identity, "http://api:8000");
+  assert.equal(config.gateway.controlUi?.enabled, false);
   assert.equal(config.agents.defaults.skipBootstrap, true);
-});
-
-test("rendered config marks itself intentional without retired metadata keys", () => {
-  assert.deepEqual(renderConfig(identity, "http://api:8000").meta, {});
+  assert.deepEqual(config.meta, {});
 });
