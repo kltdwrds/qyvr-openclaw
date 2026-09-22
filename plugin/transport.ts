@@ -164,6 +164,34 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
   while (!signal.aborted) {
     let socket: WebSocket | undefined;
     let heartbeat: ReturnType<typeof setInterval> | undefined;
+    const queues = new Map<string, Promise<void>>();
+    const slots: (() => void)[] = [];
+    let active = 0;
+    let accepting = true;
+    let queueFailed = false;
+    let queueError: unknown;
+    const enqueue = (chat: string, work: () => Promise<void>) => {
+      const previous = queues.get(chat) ?? Promise.resolve();
+      const next = previous.then(async () => {
+        if (!accepting || signal.aborted || queueFailed) return;
+        if (active === 4) await new Promise<void>(resolve => slots.push(resolve));
+        else active++;
+        try {
+          if (accepting && !signal.aborted && !queueFailed) await work();
+        } catch (error) {
+          queueFailed = true;
+          queueError = error;
+          socket?.terminate();
+        } finally {
+          const waiting = slots.shift();
+          if (waiting) waiting();
+          else active--;
+        }
+      }).finally(() => {
+        if (queues.get(chat) === next) queues.delete(chat);
+      });
+      queues.set(chat, next);
+    };
     const abort = () => {
       // Cancelling a pending upgrade emits an error after the abort listeners are removed.
       if (socket?.readyState === WebSocket.CONNECTING) socket.once("error", () => {});
@@ -234,35 +262,44 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       const recoveredChats = new Set<string>();
       const replay = async (chatUid: string) => {
         for (const message of await recover(account, chatUid, checkpoints.get(chatUid)!)) {
+          if (!accepting || signal.aborted) break;
           await consume(chatUid, message, true);
           replayed.add(message.uid);
         }
         recoveredChats.add(chatUid);
       };
       if (account.accountId === "chat") {
-        for (const chat of chats) await replay(chat.uid);
+        for (const chat of chats) enqueue(chat.uid, () => replay(chat.uid));
       }
       for await (const [raw] of frames) {
         const event = JSON.parse(raw.toString());
         if (event.event_type !== "message_received" || seen.has(event.event_id) || replayed.has(event.data.message.uid)) continue;
-        if (account.accountId === "chat" && !recoveredChats.has(event.chat_id)) {
-          if (!checkpoints.has(event.chat_id)) {
-            let checkpoint: string;
-            try { checkpoint = await readFile(`${dir}/${event.chat_id}`, "utf8"); }
-            catch (error) {
-              if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-              checkpoint = `first:${event.data.message.uid}`;
-              await ack(event.chat_id, checkpoint);
-            }
-            checkpoints.set(event.chat_id, checkpoint);
+        // Persist discovery before queueing: a dropped connection discards unstarted work.
+        if (account.accountId === "chat" && !checkpoints.has(event.chat_id)) {
+          let checkpoint: string;
+          try { checkpoint = await readFile(`${dir}/${event.chat_id}`, "utf8"); }
+          catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+            checkpoint = `first:${event.data.message.uid}`;
+            await ack(event.chat_id, checkpoint);
           }
-          await replay(event.chat_id);
+          checkpoints.set(event.chat_id, checkpoint);
         }
-        if (!replayed.has(event.data.message.uid)) await consume(event.chat_id, event.data.message);
-        remember(event.event_id);
+        enqueue(event.chat_id, async () => {
+          if (account.accountId === "chat" && !recoveredChats.has(event.chat_id)) {
+            await replay(event.chat_id);
+          }
+          if (!accepting || signal.aborted) return;
+          if (!replayed.has(event.data.message.uid)) await consume(event.chat_id, event.data.message);
+          remember(event.event_id);
+        });
       }
+      accepting = false;
+      await Promise.all(queues.values());
+      if (queueFailed) throw queueError;
       if (unauthorized) throw new HttpError(401);
     } catch (error) {
+      accepting = false;
       if (signal.aborted) break;
       if (error instanceof AmbiguousOwnerChatError || (error instanceof HttpError && error.status === 401)) {
         log(error.message + "; stopped until restart");
@@ -276,6 +313,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       clearInterval(heartbeat);
       signal.removeEventListener("abort", abort);
       abort();
+      await Promise.all(queues.values());
     }
     if (!signal.aborted) await delay(Math.min(30_000 * 2 ** attempt++, 300_000), undefined, { signal }).catch(error => { if (!signal.aborted) throw error; });
   }
