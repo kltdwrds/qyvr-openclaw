@@ -51,6 +51,8 @@ export function accepts(account: Account, chat: Chat): boolean {
   return chat.status === "active" && chat.participants.some(p => p.type === "agent" && p.relationship === "self" && p.line.uid === line);
 }
 
+const validChatId = (uid: unknown): uid is string => typeof uid === "string" && uid !== "" && uid !== "." && uid !== "..";
+
 class AmbiguousOwnerChatError extends Error {}
 
 const discoveredChats = new Map<string, Map<string, Chat>>();
@@ -173,11 +175,11 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
     const enqueue = (chat: string, work: () => Promise<void>) => {
       const previous = queues.get(chat) ?? Promise.resolve();
       const next = previous.then(async () => {
-        if (!accepting || signal.aborted || queueFailed) return;
+        if ((!accepting && account.accountId === "chat") || signal.aborted || queueFailed) return;
         if (active === 4) await new Promise<void>(resolve => slots.push(resolve));
         else active++;
         try {
-          if (accepting && !signal.aborted && !queueFailed) await work();
+          if ((accepting || account.accountId === "email") && !signal.aborted && !queueFailed) await work();
         } catch (error) {
           queueFailed = true;
           queueError = error;
@@ -207,7 +209,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       const bufferedChats = new Map<string, Set<string>>();
       const trackBufferedChat = (raw: WebSocket.RawData) => {
         const event = JSON.parse(raw.toString());
-        if (event.event_type !== "message_received") return;
+        if (event.event_type !== "message_received" || !validChatId(event.chat_id)) return;
         let messages = bufferedChats.get(event.chat_id);
         if (!messages) bufferedChats.set(event.chat_id, messages = new Set());
         messages.add(event.data.message.uid);
@@ -225,7 +227,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       }, 30_000);
       const listing = await request<Page<Chat>>(account, "/chats");
       if (listing.has_more) log("warning: Plow chat listing is truncated; continuing with returned chats");
-      const chats = listing.data.filter(chat => accepts(account, chat));
+      const chats = listing.data.filter(chat => validChatId(chat.uid) && accepts(account, chat));
       discovered.clear();
       for (const chat of chats) discovered.set(chat.uid, chat);
       const owner = findOwnerChat(account, chats);
@@ -273,12 +275,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       }
       for await (const [raw] of frames) {
         const event = JSON.parse(raw.toString());
-        if (event.event_type !== "message_received" || seen.has(event.event_id) || replayed.has(event.data.message.uid)) continue;
-        if (account.accountId === "email") {
-          await consume(event.chat_id, event.data.message);
-          remember(event.event_id);
-          continue;
-        }
+        if (event.event_type !== "message_received" || !validChatId(event.chat_id) || seen.has(event.event_id) || replayed.has(event.data.message.uid)) continue;
         // Persist discovery before queueing: a dropped connection discards unstarted work.
         if (account.accountId === "chat" && !checkpoints.has(event.chat_id)) {
           let checkpoint: string;
@@ -294,7 +291,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
           if (account.accountId === "chat" && !recoveredChats.has(event.chat_id)) {
             await replay(event.chat_id);
           }
-          if (!accepting || signal.aborted) return;
+          if ((!accepting && account.accountId === "chat") || signal.aborted) return;
           if (!replayed.has(event.data.message.uid)) await consume(event.chat_id, event.data.message);
           remember(event.event_id);
         });

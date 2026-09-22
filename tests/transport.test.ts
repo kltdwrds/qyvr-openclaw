@@ -788,32 +788,35 @@ for (const listed of [false, true]) test(`traversal chat IDs keep checkpoint rea
   }
 });
 
-test("a dropped socket drains already-received email behind an active turn", async t => {
+test("email chats run concurrently and drain received work after socket close", async t => {
   const { root, server, apiBase, abortAfter } = await websocketFixture(t);
   const controller = abortAfter();
-  const chat = acceptedChat("email-thread");
+  const chats = ["slow-email", "fast-email"].map(acceptedChat);
   const started = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  controller.signal.addEventListener("abort", () => release.resolve());
+  controller.signal.addEventListener("abort", () => { started.resolve(); release.resolve(); });
   t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
-    url.endsWith("/chats") ? { data: [chat], has_more: false } :
-    url.endsWith(`/chats/${chat.uid}`) ? chat :
-    url.includes("/messages?") ? { data: [], has_more: false } : { ticket: "ticket" }));
+    url.endsWith("/chats") ? { data: chats, has_more: false } :
+    url.includes("/messages?") ? { data: [], has_more: false } : chats.find(chat => url.endsWith(`/chats/${chat.uid}`)) ?? { ticket: "ticket" }));
   server.on("connection", socket => {
-    for (const uid of ["first", "later"]) socket.send(JSON.stringify({
-      event_type: "message_received", event_id: uid, chat_id: chat.uid, data: { message: inbound(uid) },
+    for (const [chat, uid] of [["slow-email", "first"], ["slow-email", "later"], ["fast-email", "fast"]]) socket.send(JSON.stringify({
+      event_type: "message_received", event_id: uid, chat_id: chat, data: { message: inbound(uid) },
     }));
   });
   const turns: string[] = [];
+  const completed: string[] = [];
   const running = listen({ ...account, apiBase, accountId: "email", emailLineUid: "line" }, controller.signal, text => {
-    if (text === `acked chat=${chat.uid} message=later`) controller.abort();
+    if (text === "acked chat=slow-email message=later") controller.abort();
   }, async (_chat, message) => {
     turns.push(message.uid);
-    if (message.uid === "first") { started.resolve(); await release.promise; }
+    if (message.uid === "first") await release.promise;
+    if (message.uid === "fast") started.resolve();
+    completed.push(message.uid);
     return "completed";
   });
   await started.promise;
   for (const socket of server.clients) {
+    if (controller.signal.aborted) break;
     const pong = once(socket, "pong");
     socket.ping();
     await pong;
@@ -824,7 +827,33 @@ test("a dropped socket drains already-received email behind an active turn", asy
   await new Promise(resolve => setTimeout(resolve, 50));
   release.resolve();
   await running;
-  assert.deepEqual(turns, ["first", "later"]);
+  assert.deepEqual(turns, ["first", "fast", "later"]);
+  assert.deepEqual(completed, ["fast", "first", "later"]);
   assert.notEqual(controller.signal.reason?.name, "TimeoutError");
   assert.deepEqual(await fs.readdir(`${root}/plow-checkpoints`), []);
+});
+
+for (const listed of [false, true]) test(`empty and dot-segment chat IDs are rejected before checkpoint discovery; listed=${listed}`, async t => {
+  const { server, apiBase, abortAfter } = await websocketFixture(t);
+  const controller = abortAfter();
+  const invalid = ["", ".", ".."];
+  const chat = acceptedChat("valid");
+  server.on("connection", socket => {
+    for (const uid of [...invalid, chat.uid]) socket.send(JSON.stringify({
+      event_type: "message_received", event_id: `event-${uid}`, chat_id: uid, data: { message: inbound(`message-${uid}`) },
+    }));
+  });
+  t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
+    url.endsWith("/chats") ? { data: listed ? [...invalid.map(acceptedChat), chat] : [], has_more: false } :
+    url.endsWith("/chats/valid") ? chat :
+    url.includes("/messages?") ? { data: [], has_more: false } : { ticket: "ticket" }));
+  const logs: string[] = [];
+  const turns: string[] = [];
+  await listen({ ...account, apiBase, lineUid: "line" }, controller.signal, text => {
+    logs.push(text);
+    if (text.startsWith("transport stopped") || text === "acked chat=valid message=message-valid") controller.abort();
+  }, async (_chat, message) => { turns.push(message.uid); return "completed"; });
+  assert.deepEqual(turns, ["message-valid"]);
+  assert.ok(!logs.some(text => text.startsWith("transport stopped")));
+  assert.notEqual(controller.signal.reason?.name, "TimeoutError");
 });
