@@ -89,6 +89,21 @@ texting. Long-running MCP responses stream without a fixed bridge timeout;
 client disconnects cancel the upstream request. A bridge crash restarts the
 bridge while the gateway continues.
 
+## Agent Index
+
+The image reports its token usage to the [Agent Index](https://aiworthusing.com/agent-index)
+so an agent built on this base lands on the board without wiring up a reporter.
+Set `AGENT_ID` to the id you registered — nothing is reported and no page is
+claimed without it:
+
+```dockerfile
+ENV AGENT_ID=your-agent-id
+```
+
+The first pass registers the install, and every five minutes after that it
+posts day-by-model token counts and nothing else. `agentsview` reads OpenClaw's
+own session files; a pass that fails is logged and retried on the next one.
+
 ## Trust
 
 This agent does not isolate hostile users. Every turn retains its tools; the
