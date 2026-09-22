@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer } from "node:http";
-import WebSocket from "ws";
+import WebSocket, { WebSocketServer } from "ws";
 import { test } from "node:test";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { createAdapter } from "../boot/adapter.ts";
@@ -75,6 +75,38 @@ test("teammate uses native memory defaults and grants administration only to the
   const config = renderConfig(probeIdentity, "http://api.example", team);
   assert.equal(config.memory, undefined);
   assert.equal(config.tools.sessions, undefined);
+  assert.equal("roles" in config.gateway, false);
   assert.deepEqual(config.gateway.auth.identityScopes, { "account-creator": ["operator.admin"] });
   assert.equal(config.gateway.auth.token, undefined);
+});
+
+test("an admitted WebSocket survives assertion expiry while a new upgrade with it is refused", async t => {
+  const upstream = createServer().listen(18789, "127.0.0.1");
+  const echo = new WebSocketServer({ server: upstream });
+  echo.on("connection", socket => socket.on("message", bytes => socket.send(bytes)));
+  await once(upstream, "listening");
+  t.after(() => { for (const socket of echo.clients) socket.terminate(); echo.close(); upstream.close(); });
+  const adapter = createAdapter(team).listen(0, "127.0.0.1");
+  await once(adapter, "listening");
+  t.after(() => adapter.close());
+  const address = adapter.address();
+  assert.ok(address && typeof address !== "string");
+  const url = `ws://127.0.0.1:${address.port}`;
+  const assertion = await new SignJWT({ sub: "account-member", client_ip: "192.0.2.10" })
+    .setProtectedHeader({ alg: "EdDSA", kid: "test" }).setIssuer(team.issuer).setAudience(team.hostId)
+    .setIssuedAt().setExpirationTime("2s").sign(privateKey);
+  const socket = new WebSocket(url, { headers: { "x-plow-assertion": assertion } });
+  t.after(() => socket.terminate());
+  await once(socket, "open");
+  await new Promise(resolve => setTimeout(resolve, 2100));
+  assert.equal(socket.readyState, WebSocket.OPEN);
+  const reply = once(socket, "message");
+  socket.send("still working");
+  assert.equal(String((await reply)[0]), "still working");
+  const expired = new WebSocket(url, { headers: { "x-plow-assertion": assertion } });
+  const [, response] = await once(expired, "unexpected-response");
+  assert.equal(response.statusCode, 401);
+  response.resume();
+  expired.on("error", () => {});
+  expired.terminate();
 });

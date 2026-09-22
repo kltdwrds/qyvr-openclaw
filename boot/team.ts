@@ -35,9 +35,5 @@ export function teamGateway(team: Pick<TeamSettings, "origin" | "creatorId">) {
       identityScopes: { [team.creatorId]: ["operator.admin"] },
     },
     controlUi: { enabled: true, allowedOrigins: [team.origin] },
-    // A role ceiling preserves the creator's identity grant; it grants no scopes itself.
-    roles: { default: "teammate", definitions: {
-      teammate: { sessions: { others: "write" }, agents: "*", scopes: ["operator.admin", ...PEER_SCOPES] },
-    } },
   };
 }

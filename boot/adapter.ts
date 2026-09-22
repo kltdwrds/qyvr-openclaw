@@ -28,13 +28,13 @@ export function createAdapter(team: TeamSettings) {
     outgoing["x-forwarded-for"] = payload.client_ip;
     outgoing["x-forwarded-host"] = url.host;
     outgoing["x-forwarded-proto"] = url.protocol.slice(0, -1);
-    return { outgoing, expires: payload.exp! * 1000 };
+    return outgoing;
   }
   const server = createServer(async (req, res) => {
     let verified;
     try { verified = await headers(req); }
     catch { res.writeHead(401).end("Invalid dashboard assertion\n"); return; }
-    const upstream = request({ hostname: "127.0.0.1", port: 18789, path: req.url, method: req.method, headers: verified.outgoing }, response => {
+    const upstream = request({ hostname: "127.0.0.1", port: 18789, path: req.url, method: req.method, headers: verified }, response => {
       res.writeHead(response.statusCode!, response.headers);
       response.pipe(res);
       response.on("error", () => res.destroy());
@@ -48,9 +48,8 @@ export function createAdapter(team: TeamSettings) {
     let verified;
     try { verified = await headers(req); }
     catch { socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"); return; }
-    const upstream = request({ hostname: "127.0.0.1", port: 18789, path: req.url, headers: verified.outgoing });
-    const expiry = setTimeout(() => { upstream.destroy(); socket.destroy(); }, Math.max(0, verified.expires - Date.now()));
-    socket.on("close", () => { clearTimeout(expiry); upstream.destroy(); });
+    const upstream = request({ hostname: "127.0.0.1", port: 18789, path: req.url, headers: verified });
+    socket.on("close", () => upstream.destroy());
     socket.on("error", () => upstream.destroy());
     upstream.on("error", () => socket.destroy());
     upstream.on("response", response => { socket.end(`HTTP/1.1 ${response.statusCode} Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`); response.resume(); });

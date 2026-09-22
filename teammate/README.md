@@ -40,13 +40,14 @@ Each HTTP request and WebSocket upgrade carries `X-Plow-Assertion`, an EdDSA JWT
 with `kid`, `iss`, `aud` (host ID), `sub` (stable account ID), `iat`, `exp`, and
 `client_ip`. Assertions last at most 60 seconds. `client_ip` is the actual client
 IP attested by Plow's trusted ingress. The adapter verifies the signature, issuer,
-audience and times, consumes the assertion, and reconstructs identity, scope and
-forwarding headers. It passes signed loopback addresses unchanged so OpenClaw's
+audience and times, strips the assertion header before forwarding, and rebuilds
+identity, scope and forwarding headers. The assertion is replayable until expiry. It passes signed loopback addresses unchanged so OpenClaw's
 own attribution check rejects them. It never substitutes a synthetic address.
 
 The dashboard origin is fixed by deployment. A supplied browser Origin must
-match it. HTTP bodies stream; WebSocket upgrades tunnel bytes. Sockets close at
-assertion expiry; reconnects need a fresh assertion. Assertions are bearer
+match it. HTTP bodies stream; WebSocket upgrades tunnel bytes. Assertion expiry
+governs admission, not the lifetime of an admitted socket. Existing sockets stay
+open; new requests and reconnects need a valid assertion. Assertions are bearer
 credentials and can be replayed until expiry. Plow must block new requests and
 close active connections on membership revocation. Rotate by deploying an
 overlapping public key set and restarting the image, then remove the old key
@@ -54,9 +55,48 @@ and restart after outstanding assertions expire. Private signing keys stay in
 Plow. Plow consumes its own login cookie before forwarding; native OpenClaw
 cookies pass through the adapter.
 
+## Trust
+
+The image does not configure `gateway.roles`: OpenClaw's native role and session
+authorization applies. In the pinned release, an absent role boundary does not
+restrict access to other sessions; removing our custom `sessions.others: write`
+role does not make the owner's texted DM private from teammates. This is a shared
+control plane, including conversation history, not per-person DM isolation.
+
 Local processes that can reach the gateway can impersonate the adapter. This
 is one trusted team's control plane, not isolation from hostile VM code.
 Channel sender IDs and browser profiles are not assumed to be linked.
+
+## Dashboard turns and Plow delivery
+
+Opening a texted conversation in the dashboard does not by itself send dashboard
+turns back to Plow. The pinned Control UI sends `deliver: false`; a client must
+request `deliver: true` in `chat.send` to send the assistant's reply to Plow.
+A Control UI client can inherit a texted group session's stored route. For an
+explicit route, pass the served conversation's original, case-sensitive chat UID:
+
+```json
+{
+  "sessionKey": "SESSION_KEY_FROM_OPENCLAW",
+  "message": "What is our next step?",
+  "idempotencyKey": "UNIQUE_REQUEST_ID",
+  "deliver": true,
+  "originatingChannel": "plow",
+  "originatingTo": "cht_ORIGINAL_CHAT_UID",
+  "originatingAccountId": "chat"
+}
+```
+
+OpenClaw routes the assistant's reply through the plugin's native outbound
+handlers, which check that the configured account serves the target conversation.
+Without a delivery request, the reply stays in the dashboard. The channel's
+`delivery.deliver` callback handles replies to inbound Plow turns; dashboard
+channel delivery uses the existing outbound handlers.
+
+The human's dashboard text stays in OpenClaw. Plow sends from the agent's line,
+so it cannot post that text as the human or impersonate their phone number. Only
+the agent's requested reply is delivered to the group. Browser profiles and Plow
+channel senders remain separate identities.
 
 ## Local test signer
 
