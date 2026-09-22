@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { once } from "node:events";
 import { websocketFixture } from "./ws-fixture.ts";
 import fs, { mkdir, readFile, writeFile } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
@@ -65,18 +66,19 @@ test("a truncated chat listing warns and keeps recovery and live delivery on the
   assert.ok(!logs.some(text => text.startsWith("transport stopped:")));
 });
 
-test("a frame arriving while a synthesized checkpoint is written is recovered", async t => {
+for (const owner of [false, true]) test(`a frame arriving while a synthesized checkpoint is written is recovered: owner=${owner}`, async t => {
   const { root, server, apiBase, abortAfter } = await websocketFixture(t);
   const controller = abortAfter();
-  const chat = { uid: "group", status: "active", participants: [{ type: "agent", relationship: "self", line: { uid: "line" } }] };
+  const chat = { uid: "group", status: "active", participants: [{ type: "agent", relationship: "self", line: { uid: "line" } }, ...(owner ? [{ type: "member", uid: "owner", role: "owner" }] : [])] };
   const message = { uid: "arriving", direction: "inbound", sender: { type: "member" } };
+  const baseline = owner ? { ...message, uid: "pending" } : message;
   t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
     url.endsWith("/chats") ? { data: [chat], has_more: false } : url.endsWith("/chats/group") ? chat :
-    url.includes("/messages?") ? { data: [message], has_more: false } : { ticket: "ticket" }));
+    url.includes("/messages?") ? { data: [baseline], has_more: false } : { ticket: "ticket" }));
   const originalWrite = fs.writeFile;
   let injected = false;
   const writer = t.mock.method(fs, "writeFile", async (...args: Parameters<typeof fs.writeFile>) => {
-    if (!injected && String(args[0]).endsWith("/group.tmp") && args[1] === message.uid) {
+    if (!injected && String(args[0]).endsWith("/group.tmp") && args[1] === (owner ? `first:${baseline.uid}` : baseline.uid)) {
       injected = true;
       for (const socket of server.clients) {
         socket.send(JSON.stringify({ event_type: "message_received", event_id: "event", chat_id: chat.uid, data: { message } }));
@@ -90,11 +92,11 @@ test("a frame arriving while a synthesized checkpoint is written is recovered", 
   const received: string[] = [];
   await listen({ ...account, apiBase, lineUid: "line" }, controller.signal, () => {}, async (_chat, message) => {
     received.push(message.uid);
-    controller.abort();
+    if (message.uid === "arriving") controller.abort();
     return "completed";
   });
   assert.equal(injected, true);
-  assert.deepEqual(received, [message.uid]);
+  assert.deepEqual(received, owner ? ["pending", "arriving"] : ["arriving"]);
   assert.equal(await readFile(`${root}/plow-checkpoints/group`, "utf8"), message.uid);
 });
 
@@ -148,7 +150,7 @@ for (const outcome of ["completed", "incomplete"] as const) test(`unknown delive
   assert.equal(await readFile(`${root}/plow-checkpoints/chat`, "utf8"), outcome === "completed" ? "next" : "uncertain");
 });
 
-for (const scenario of ["waited", "pending", "buffered", "pending-buffered", "interrupted", "answered", "peer", "group", "fresh"]) test(`first contact and restart: ${scenario}`, async t => {
+for (const scenario of ["waited", "pending", "buffered", "buffered-before-read", "buffered-after-read", "interrupted", "answered", "peer", "group", "fresh"]) test(`first contact and restart: ${scenario}`, async t => {
   const { root, server, apiBase, abortAfter } = await websocketFixture(t);
   if (scenario === "waited") {
     await mkdir(`${root}/plow-checkpoints`);
@@ -161,12 +163,31 @@ for (const scenario of ["waited", "pending", "buffered", "pending-buffered", "in
     sender: scenario === "peer" ? { type: "agent", relationship: "peer", line: { uid: "peer" } } : sender };
   const older = { ...first, uid: "older" };
   const newer = { ...first, uid: "newer" };
+  const twoMessages = ["buffered-before-read", "buffered-after-read"].includes(scenario);
   let boot = 0;
-  if (["buffered", "fresh", "interrupted", "pending-buffered"].includes(scenario)) server.on("connection", (socket: { send: (text: string) => void }) => {
-    if (scenario !== "interrupted" || !boot) socket.send(JSON.stringify({ event_type: "message_received", event_id: "first", chat_id: "home", data: { message: scenario === "pending-buffered" ? newer : first } }));
+  if (["buffered", "fresh", "interrupted"].includes(scenario)) server.on("connection", (socket: { send: (text: string) => void }) => {
+    if (scenario !== "interrupted" || !boot) socket.send(JSON.stringify({ event_type: "message_received", event_id: "first", chat_id: "home", data: { message: first } }));
   });
-  t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
-    url.endsWith("/chats") ? { data: scenario === "fresh" || (scenario === "interrupted" && !boot) ? [] : [chat], has_more: false } : url.endsWith("/chats/home") ? chat : url.includes("/messages?") ? { data: url.includes("limit=1") || scenario === "waited" ? [first] : scenario === "pending-buffered" ? [newer, first, older] : [first, older], has_more: false } : { ticket: "ticket" }));
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    if (!boot && ((scenario === "buffered-before-read" && url.endsWith("/chats")) ||
+      (scenario === "buffered-after-read" && url.includes("limit=1")))) {
+      for (const socket of server.clients) {
+        for (const message of scenario === "buffered-before-read" ? [first, newer] : [newer]) {
+          socket.send(JSON.stringify({ event_type: "message_received", event_id: message.uid, chat_id: "home", data: { message } }));
+        }
+        // A pong confirms the client has processed the preceding frames.
+        const pong = once(socket, "pong");
+        socket.ping();
+        await pong;
+      }
+    }
+    return Response.json(
+      url.endsWith("/chats") ? { data: scenario === "fresh" || (scenario === "interrupted" && !boot) ? [] : [chat], has_more: false } :
+      url.endsWith("/chats/home") ? chat : url.includes("/messages?") ? {
+        data: url.includes("limit=1") ? [scenario === "buffered-before-read" ? newer : first] :
+          scenario === "waited" ? [first] : twoMessages ? [newer, first, older] : [first, older], has_more: false,
+      } : { ticket: "ticket" });
+  });
   const turns: { uid: string; firstContact: boolean }[] = [];
   for (; boot < 2; boot++) {
     const controller = abortAfter();
@@ -175,9 +196,9 @@ for (const scenario of ["waited", "pending", "buffered", "pending-buffered", "in
       if (scenario === "interrupted") { controller.abort(); return boot ? "completed" : "incomplete"; }
       return "completed";
     });
-    assert.equal(await readFile(`${root}/plow-checkpoints/home`, "utf8"), scenario === "interrupted" && !boot ? "first:first" : scenario === "pending-buffered" ? "newer" : "first");
+    assert.equal(await readFile(`${root}/plow-checkpoints/home`, "utf8"), scenario === "interrupted" && !boot ? "first:first" : twoMessages ? "newer" : "first");
   }
-  assert.deepEqual(turns, scenario === "interrupted" ? [{ uid: "first", firstContact: true }, { uid: "first", firstContact: true }] : scenario === "pending-buffered" ? [{ uid: "first", firstContact: true }, { uid: "newer", firstContact: false }] : ["waited", "pending", "buffered", "fresh"].includes(scenario) ? [{ uid: "first", firstContact: true }] : []);
+  assert.deepEqual(turns, scenario === "interrupted" ? [{ uid: "first", firstContact: true }, { uid: "first", firstContact: true }] : twoMessages ? [{ uid: "first", firstContact: true }, { uid: "newer", firstContact: false }] : ["waited", "pending", "buffered", "fresh"].includes(scenario) ? [{ uid: "first", firstContact: true }] : []);
 });
 
 test("first-contact recovery includes its message and newer arrivals, excluding older history", async t => {

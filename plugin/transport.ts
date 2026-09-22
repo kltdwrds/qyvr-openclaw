@@ -191,12 +191,14 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
           try { checkpoint = await readFile(`${dir}/${chat.uid}`, "utf8"); }
           catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+            const buffered = bufferedChats.get(chat.uid);
             const page = await request<Page<Message>>(account, `/chats/${chat.uid}/messages?limit=1`);
             const newest = page.data[0];
             checkpoint = chat.uid === owner?.uid && newest?.direction === "inbound" && newest.sender.type === "member"
               ? `first:${newest.uid}` : newest?.uid ?? "";
+            if (buffered) checkpoint = `first:${buffered}`;
             await ack(chat.uid, checkpoint);
-            // Include frames that arrived while the baseline was being persisted.
+            // Late frames can include an exclusive baseline, but must not replace pending first contact.
             if (!checkpoint.startsWith("first:") && bufferedChats.has(chat.uid)) {
               checkpoint = `first:${bufferedChats.get(chat.uid)}`;
               await ack(chat.uid, checkpoint);
