@@ -3,7 +3,7 @@
 The image pins the runtime and SDK. CI type-checks boot, plugin and build sources,
 runs all Node tests against that image, and boots the real offline gateway probe.
 Tests use local fixtures and need no Plow credentials. Type checking uses the
-published OpenClaw 2026.9.5 declarations because the runtime image omits them;
+published OpenClaw 2026.9.4 declarations because the runtime image omits them;
 runtime tests use the SDK shipped in the pinned image. The plugin is an npm
 workspace: CI and the image use the root lock, with development, peer and optional
 dependencies omitted from the image install.
@@ -20,19 +20,19 @@ docker run --rm --network none plow-openclaw:test /opt/plow/probe
 
 ## Pinned OpenClaw contracts
 
-The Dockerfile pins OpenClaw `2026.9.5` by image digest. These source links target
-its release commit `ec9c1a13db8938e5a3eaa51fca2e981cde2395a9`.
+The Dockerfile pins OpenClaw `2026.9.4` by image digest. These source links target
+its release commit `3a9d69db306cd7f081e06254cb89c4bcc14a7107`.
 
 | Contract | Source |
 | --- | --- |
-| Non-root runtime and foreground launcher | [Dockerfile](https://github.com/openclaw/openclaw/blob/ec9c1a13db8938e5a3eaa51fca2e981cde2395a9/Dockerfile#L427-L448) |
-| Config environment references | [Environment substitution](https://github.com/openclaw/openclaw/blob/ec9c1a13db8938e5a3eaa51fca2e981cde2395a9/src/config/env-substitution.ts#L99-L145) |
-| Private provider endpoint opt-in | [Provider transport](https://github.com/openclaw/openclaw/blob/ec9c1a13db8938e5a3eaa51fca2e981cde2395a9/src/agents/provider-transport-fetch.ts#L666-L693) |
-| Channel registration and inbound dispatch | [Plugin entry](https://github.com/openclaw/openclaw/blob/ec9c1a13db8938e5a3eaa51fca2e981cde2395a9/src/plugin-sdk/core.ts#L538-L589), [turn contract](https://github.com/openclaw/openclaw/blob/ec9c1a13db8938e5a3eaa51fca2e981cde2395a9/src/channels/turn/types.ts#L317-L349) |
-| Session isolation and owner binding | [Routing schema](https://github.com/openclaw/openclaw/blob/ec9c1a13db8938e5a3eaa51fca2e981cde2395a9/src/config/zod-schema.agents.ts#L92-L137) |
-| Tool registration, requester and deny policy | [Tool API](https://github.com/openclaw/openclaw/blob/ec9c1a13db8938e5a3eaa51fca2e981cde2395a9/src/plugins/plugin-api.types.ts#L213-L216), [hook context](https://github.com/openclaw/openclaw/blob/ec9c1a13db8938e5a3eaa51fca2e981cde2395a9/src/plugins/hook-types.ts#L693-L736), [policy schema](https://github.com/openclaw/openclaw/blob/ec9c1a13db8938e5a3eaa51fca2e981cde2395a9/src/config/zod-schema.agent-runtime.ts#L330-L341) |
-| MCP configuration | [MCP server schema](https://github.com/openclaw/openclaw/blob/ec9c1a13db8938e5a3eaa51fca2e981cde2395a9/src/config/zod-schema.mcp-server.ts#L15-L36) |
-| Native MCP catalog omits server instructions | [Catalog construction](https://github.com/openclaw/openclaw/blob/ec9c1a13db8938e5a3eaa51fca2e981cde2395a9/src/agents/agent-bundle-mcp-runtime.ts#L852-L932) |
+| Non-root runtime and foreground launcher | [Dockerfile](https://github.com/openclaw/openclaw/blob/3a9d69db306cd7f081e06254cb89c4bcc14a7107/Dockerfile#L427-L448) |
+| Config environment references | [Environment substitution](https://github.com/openclaw/openclaw/blob/3a9d69db306cd7f081e06254cb89c4bcc14a7107/src/config/env-substitution.ts#L99-L145) |
+| Private provider endpoint opt-in | [Provider transport](https://github.com/openclaw/openclaw/blob/3a9d69db306cd7f081e06254cb89c4bcc14a7107/src/agents/provider-transport-fetch.ts#L666-L693) |
+| Channel registration and inbound dispatch | [Plugin entry](https://github.com/openclaw/openclaw/blob/3a9d69db306cd7f081e06254cb89c4bcc14a7107/src/plugin-sdk/core.ts#L553-L595), [turn contract](https://github.com/openclaw/openclaw/blob/3a9d69db306cd7f081e06254cb89c4bcc14a7107/src/channels/turn/types.ts#L317-L349) |
+| Session isolation and owner binding | [Routing schema](https://github.com/openclaw/openclaw/blob/3a9d69db306cd7f081e06254cb89c4bcc14a7107/src/config/zod-schema.agents.ts#L90-L125) |
+| Tool registration, requester and deny policy | [Tool API](https://github.com/openclaw/openclaw/blob/3a9d69db306cd7f081e06254cb89c4bcc14a7107/src/plugins/plugin-api.types.ts#L209-L212), [hook context](https://github.com/openclaw/openclaw/blob/3a9d69db306cd7f081e06254cb89c4bcc14a7107/src/plugins/hook-types.ts#L691-L726), [policy schema](https://github.com/openclaw/openclaw/blob/3a9d69db306cd7f081e06254cb89c4bcc14a7107/src/config/zod-schema.agent-runtime.ts#L312-L318) |
+| MCP configuration | [MCP server type](https://github.com/openclaw/openclaw/blob/3a9d69db306cd7f081e06254cb89c4bcc14a7107/src/config/types.mcp.ts#L23-L37) |
+| Native MCP catalog omits server instructions | [Catalog construction](https://github.com/openclaw/openclaw/blob/3a9d69db306cd7f081e06254cb89c4bcc14a7107/src/agents/agent-bundle-mcp-runtime.ts#L825-L938) |
 
 ## Defaults we inherit
 
@@ -41,3 +41,12 @@ policy unset, so both follow the pinned OpenClaw release's defaults. Review
 those defaults when changing the runtime pin or adding channels. Host concurrency
 is separate from Plow's per-chat scheduling; Plow's send adapter still validates
 that destinations are active and belong to its served lines.
+
+The runtime and SDK remain on 2026.9.4 because live 2026.9.5 turns lost the
+plugin’s active-message context in tool execution, breaking thread creation.
+Revalidate thread creation, current-chat send refusal and uncertain-delivery
+handling before upgrading again.
+
+A state database already opened by 2026.9.5 cannot be opened by 2026.9.4.
+Restore a pre-upgrade backup, or use a fresh state volume (which resets local
+profiles, sessions and memory); do not attempt an in-place database downgrade.
