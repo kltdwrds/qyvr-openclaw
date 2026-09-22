@@ -502,7 +502,7 @@ test("a stalled WebSocket upgrade times out and reconnects after backoff", { tim
   assert.ok(logs.some(text => text.startsWith("transport stopped:")));
 });
 
-test("an older frame arriving during the baseline read cannot rewind first contact or replay it after restart", async t => {
+test("a buffered message preceding the HTTP baseline runs first without replay after restart", async t => {
   const { root, server, apiBase, abortAfter } = await websocketFixture(t);
   const fixture = { ...account, apiBase, lineUid: "line" };
   const sender = { type: "member", uid: "owner", role: "owner", display_name: "Owner" };
@@ -541,7 +541,7 @@ test("an older frame arriving during the baseline read cannot rewind first conta
       turns.push(message.uid);
       return "completed";
     });
-    assert.deepEqual(turns, ["Y"], "only newest pending first contact is dispatched; older frames never follow it");
+    assert.deepEqual(turns, ["X", "Y"], "buffered input precedes the newer HTTP baseline and neither replays on restart");
     assert.equal(await readFile(`${root}/plow-checkpoints/home`, "utf8"), "Y");
   }
 });

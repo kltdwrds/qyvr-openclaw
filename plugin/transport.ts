@@ -214,9 +214,15 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
             checkpoint = chat.uid === owner?.uid && newest?.direction === "inbound" && newest.sender.type === "member"
               ? `first:${newest.uid}` : newest?.uid ?? "";
             const buffered = bufferedChats.get(chat.uid);
-            // Preserve pending first contact unless its message is in the live buffer.
-            const first = bufferedBeforeRead ?? (!checkpoint.startsWith("first:") || buffered?.has(newest.uid)
+            // HTTP history can include a newer message whose socket frame is delayed.
+            // Compare history order when buffer membership cannot order the candidates.
+            let first = bufferedBeforeRead ?? (!checkpoint.startsWith("first:") || buffered?.has(newest.uid)
               ? buffered?.values().next().value : undefined);
+            const candidate = buffered?.values().next().value;
+            if (!first && candidate && checkpoint.startsWith("first:") &&
+              (await recover(account, chat.uid, `first:${candidate}`)).some(message => message.uid === newest.uid)) {
+              first = candidate;
+            }
             if (first) checkpoint = `first:${first}`;
             await ack(chat.uid, checkpoint);
             // Late frames can include an exclusive baseline, but must not replace pending first contact.
