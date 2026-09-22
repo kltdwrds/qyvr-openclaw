@@ -28,7 +28,7 @@ test(`socket-first boot: ${scenario}`, { timeout: 200_000 }, async t => {
     import { listen } from ${JSON.stringify(new URL("../plugin/transport.ts", import.meta.url).href)};
     export async function startGateway() {
       console.log("GATEWAY_STARTED");
-      if (!["early", "reconnect", "wake-503", "reconnect-503"].includes(${JSON.stringify(scenario)})) return;
+      if (!["early", "reconnect"].includes(${JSON.stringify(scenario)})) return;
       const abort = new AbortController();
       await listen({ apiBase: process.env.PLOW_API_BASE, accountId: "chat", lineUid: "ln_probe", ownerChatUid: "cht_probe" },
         abort.signal, console.log, async (_chat, message) => {
@@ -124,7 +124,7 @@ test(`socket-first boot: ${scenario}`, { timeout: 200_000 }, async t => {
       assert.ok(performance.now() - started < 65_000, "missed pong reconnects by second 30-second heartbeat plus backoff");
       assert.equal(identityReads, 2, "reconnect reads identity once");
     }
-    if (scenario === "no-owner") {
+    if (scenario === "no-owner" || scenario === "wake-503") {
       const checked = once(server, "identity");
       socket.send(JSON.stringify({ event_type: "message_received", chat_id: "other", data: { message: message("unrelated") } }));
       await checked;
@@ -142,26 +142,24 @@ test(`socket-first boot: ${scenario}`, { timeout: 200_000 }, async t => {
       owner = true; // The text lands while no socket is subscribed.
       [socket] = await reconnected;
       await checked;
-      await once(child, "close", { signal: AbortSignal.timeout(5_000) });
-      assert.deepEqual(replies, ["before-subscribe", "second"]);
-      assert.equal(identityReads, scenario === "reconnect" ? 3 : 4, "includes the runtime channel identity read");
-    }
-    if (scenario === "wake-503") {
-      owner = true;
-      socket.send(JSON.stringify({ event_type: "message_received", chat_id: "cht_probe", data: { message: message("second") } }));
-      await once(child, "close", { signal: AbortSignal.timeout(5_000) });
-      assert.deepEqual(replies, ["before-subscribe", "second"]);
-      assert.equal(identityReads, 4, "initial read, failed wake, successful retry, runtime channel read");
+      if (scenario === "reconnect") {
+        await once(child, "close", { signal: AbortSignal.timeout(5_000) });
+        assert.deepEqual(replies, ["before-subscribe", "second"]);
+      } else {
+        await sleep(3_500);
+        assert.equal(identityReads, 2, "failed reconnect read does not retry on a timer");
+        assert.ok(!stdout.includes("GATEWAY_STARTED"));
+      }
     }
     owner = true;
-    if (!["reconnect", "wake-503", "reconnect-503"].includes(scenario)) socket.send(JSON.stringify({ event_type: "message_received", chat_id: "cht_probe", data: { message: message("second") } }));
+    if (scenario !== "reconnect") socket.send(JSON.stringify({ event_type: "message_received", chat_id: "cht_probe", data: { message: message("second") } }));
   }
   const [code] = await closed;
   assert.equal(code, 0, stderr);
   assert.ok(stdout.includes("GATEWAY_STARTED"), stdout);
   if (scenario !== "401" && scenario !== "503") {
     assert.equal(await readFile(`${root}/state/plow-checkpoints/cht_probe`, "utf8"),
-      scenario === "restart" ? "already-acked" : ["early", "reconnect", "wake-503", "reconnect-503"].includes(scenario) ? "second" : "");
+      scenario === "restart" ? "already-acked" : ["early", "reconnect"].includes(scenario) ? "second" : "");
   }
   if (scenario === "early") assert.deepEqual(replies, ["before-subscribe", "second"]);
   if (scenario === "401") { assert.ok(identityReads > 1); assert.ok(performance.now() - started >= 60_000); }

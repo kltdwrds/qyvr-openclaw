@@ -57,9 +57,8 @@ agent waits for first contact over WebSocket, without identity polling. Initial
 identity lookup tolerates 401/403 for 120 seconds and retries network/429/5xx
 failures ten times. Invalid identity or exhausted boot retries leave the
 container running with a diagnostic error. Socket drops reconnect with backoff.
-Each inbound or reconnect reads identity, retrying transient failures up to
-three attempts with a one-second backoff. Exhaustion returns to the socket wait;
-there is no background identity polling.
+Each inbound or reconnect then reads identity once; a transient failure waits
+for another event.
 
 Messages received while boot waits are recovered when the owner chat appears.
 Chat checkpoints survive restarts. Chats omitted from a truncated listing
