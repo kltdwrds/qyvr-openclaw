@@ -1,3 +1,4 @@
 plow-credentials
+.env
 node_modules/
 dist/

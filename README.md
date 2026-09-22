@@ -41,9 +41,8 @@ For cloud agents, Plow sets
 `PLOW_DASHBOARD_ORIGIN=https://<agent-uid>.agents.plow.co` at provision time
 to expose the owner dashboard through its private proxy. The image runs as
 the VM's PID 1, so the ingress reaches the gateway at `127.0.0.1:3000` inside
-the VM. Self-hosted Compose does not support dashboard mode. Without the
-variable, the Control UI stays disabled and the gateway keeps its loopback
-token config.
+the VM. Without the variable, the Control UI stays disabled and the gateway
+keeps its loopback token config.
 The proxy must remove browser-supplied `X-Plow-*`, `X-Forwarded-*`, `Forwarded`,
 and `X-Real-IP`, then set `X-Plow-User` to the authenticated owner's Plow user
 UID and `X-Forwarded-For` to the browser's non-loopback address. The UID is an
@@ -51,6 +50,15 @@ account identifier, not a phone number or a dashboard display name.
 The dashboard accepts WebSocket requests only from `PLOW_DASHBOARD_ORIGIN`.
 The proxy preserves that browser `Origin` but replaces `Host` with the VM's
 upstream host.
+
+For local development, enable the Compose dashboard profile:
+
+1. Add `PLOW_DASHBOARD_ORIGIN=http://localhost:3001` to `.env`.
+2. Run `docker compose --profile dashboard up`.
+3. Open <http://localhost:3001>.
+
+This proxy is for local development only: anyone who can reach localhost:3001
+is an admin of this agent. Compose publishes that port on loopback only.
 
 For a local Plow API, use the CLI's `--api-base` option and mint with
 `--agent-api-base` set to an address the container can reach, such as
