@@ -107,3 +107,8 @@ for (const name of [undefined, null, "", "  "]) test(`missing agent name is not 
 test("the base image does not serve the OpenClaw browser UI", () => {
   assert.equal(renderConfig(identity, "http://api:8000").gateway.controlUi?.enabled, false);
 });
+
+test("Plow identity does not start OpenClaw's generic naming bootstrap", () => {
+  const config = renderConfig(identity, "http://api:8000");
+  assert.equal(config.agents.defaults.skipBootstrap, true);
+});
