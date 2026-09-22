@@ -139,7 +139,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
         else { alive = false; socket!.ping(); }
       }, 30_000);
       const listing = await request<Page<Chat>>(account, "/chats");
-      if (listing.has_more) throw new Error("Plow chat listing is truncated");
+      if (listing.has_more) log("warning: Plow chat listing is truncated; continuing with returned chats");
       const chats = listing.data.filter(chat => accepts(account, chat));
       await request(account, "/agents/me");
       if (account.accountId === "chat") {

@@ -33,6 +33,38 @@ test("a failed history read cannot masquerade as an empty recovery", async t => 
   await assert.rejects(recover(account, "chat", "acked"), /HTTP 503/);
 });
 
+test("a truncated chat listing warns and keeps recovery and live delivery on the same connection", async t => {
+  const { root, server, apiBase, abortAfter } = await websocketFixture(t);
+  const controller = abortAfter();
+  await mkdir(`${root}/plow-checkpoints`);
+  await writeFile(`${root}/plow-checkpoints/group`, "old");
+  const chat = { uid: "group", status: "active", participants: [{ type: "agent", relationship: "self", line: { uid: "line" } }] };
+  const missed = { uid: "missed", direction: "inbound", sender: { type: "member" } };
+  let connections = 0;
+  server.on("connection", () => { connections++; });
+  t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
+    url.endsWith("/chats") ? { data: [chat], has_more: true } :
+    url.endsWith("/chats/group") ? chat :
+    url.endsWith("/messages?limit=50") ? { data: [missed, { uid: "old" }], has_more: false } :
+    url.includes("/messages?") ? { data: [], has_more: false } : { ticket: "ticket" }));
+  const received: string[] = [];
+  const logs: string[] = [];
+  await listen({ ...account, apiBase, lineUid: "line" }, controller.signal, text => logs.push(text), async (_chat, message) => {
+    received.push(message.uid);
+    if (message.uid === "missed") {
+      for (const socket of server.clients) socket.send(JSON.stringify({
+        event_type: "message_received", event_id: "live", chat_id: chat.uid, data: { message: { ...missed, uid: "live" } },
+      }));
+    } else controller.abort();
+    return "completed";
+  });
+  assert.deepEqual(received, ["missed", "live"]);
+  assert.equal(await readFile(`${root}/plow-checkpoints/group`, "utf8"), "live");
+  assert.equal(connections, 1);
+  assert.ok(logs.some(text => text.includes("warning") && text.includes("truncated")));
+  assert.ok(!logs.some(text => text.startsWith("transport stopped:")));
+});
+
 test("a frame arriving while a synthesized checkpoint is written is recovered", async t => {
   const { root, server, apiBase, abortAfter } = await websocketFixture(t);
   const controller = abortAfter();
