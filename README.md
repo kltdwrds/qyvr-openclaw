@@ -53,20 +53,25 @@ Local runs also supply `PLOW_AGENT_TOKEN`. On a cloud host that injects the
 credential, an absent or empty token becomes the placeholder `proxied`.
 The boot process does not read a credential file itself.
 
-Boot fetches identity once. If the owner's chat already exists, it starts
-OpenClaw immediately, including on restart. Only a line without the owner's
-chat opens a Plow WebSocket and waits for an inbound message, then fetches
-identity again and starts OpenClaw. The handshake and outbound events do not
-wake boot. There is no identity polling or periodic socket renewal. Failed
-connections retry with backoff from one second up to sixty seconds; ticket and
-WebSocket setup each have a ten-second timeout. A healthy idle socket has no
-hold timeout. Boot uses Node's native WebSocket client, independently of the
-channel plugin.
+Boot opens and subscribes a Plow WebSocket before fetching identity. Identity
+lookup tolerates credential propagation (401/403) for up to 120 seconds and
+retries transient network, 429 and 5xx failures up to ten attempts. If the
+owner's chat exists, boot starts OpenClaw; otherwise it waits for an inbound
+message and reads identity again. An inbound without an owner's chat keeps
+waiting; transient failures on these wake reads also return to the socket without
+retrying identity. Outbound events and reconnects do not trigger identity reads.
 
-When waiting for first contact, messages sent before the socket subscribes do
-not wake it. A new checkpoint starts at the waking message so older answered
-history is not replayed. Existing checkpoints are preserved on restart. No
-setup greeting is sent. A failed identity lookup parks boot without polling.
+There is no identity polling or periodic socket renewal. Failed connections
+retry with backoff from one second up to sixty seconds; ticket and WebSocket
+setup each have a ten-second timeout. The socket pings every thirty seconds
+and reconnects if the previous ping has no pong. Boot uses the plugin's `ws`
+dependency for protocol ping/pong support. A healthy idle socket has no hold
+timeout.
+
+After waiting for an owner chat, fresh checkpoints start empty so recovery
+includes messages sent before subscription and while boot was waiting. Existing checkpoints are
+preserved on restart. No setup greeting is sent. An exhausted or invalid
+identity lookup parks boot without polling.
 
 Boot renders OpenClaw configuration and the workspace prompt under
 `/var/lib/plow`, which Compose persists. The config uses environment references
@@ -78,7 +83,9 @@ shutdown signals. Plow's provider configuration allows a private API address,
 so set `PLOW_API_BASE` only to an endpoint you control.
 
 The `plow` channel plugin receives live messages over WebSocket and recovers
-missed chat messages through the API. It uses separate chat and email accounts.
+missed chat messages through the API. Chats beyond a truncated first listing
+page still receive live delivery but have no reconnect recovery. It uses
+separate chat and email accounts.
 The owner's phone DM uses the main session; other DMs and groups have separate
 sessions. Chat checkpoints survive restarts; email has no history backfill.
 Shutdown-interrupted turns can be recovered. Live incomplete turns are logged

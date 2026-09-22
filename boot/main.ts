@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
-import { renderConfig, findOwnerChat } from "./config.js";
+import { renderConfig, findOwnerChat, type Identity } from "./config.js";
 import { identityFromApi } from "./identity.js";
-import { waitForInbound } from "./inbound.js";
+import { inboundEvents } from "./inbound.js";
 import { renderPrompt } from "./prompt.js";
 import { startGateway } from "./process.js";
 
@@ -12,15 +12,26 @@ try {
   process.env.PLOW_AGENT_TOKEN ||= "proxied";
   process.env.OPENCLAW_GATEWAY_TOKEN = randomBytes(32).toString("hex");
   process.env.PLOW_MCP_BRIDGE_TOKEN = randomBytes(32).toString("hex");
-  let identity = await identityFromApi(base, process.env.PLOW_AGENT_TOKEN);
-  if (!findOwnerChat(identity)) {
+  let identity: Identity | undefined;
+  let waitingForOwner = false;
+  for await (const event of inboundEvents(base, process.env.PLOW_AGENT_TOKEN)) {
+    if (event === "connected" && identity) continue;
+    const resolved = await identityFromApi(base, process.env.PLOW_AGENT_TOKEN, !identity);
+    if (!resolved) continue;
+    identity = resolved;
+    const ownerChat = findOwnerChat(identity);
+    if (ownerChat) {
+      if (waitingForOwner) {
+        await mkdir("/var/lib/plow/plow-checkpoints", { recursive: true });
+        await writeFile(`/var/lib/plow/plow-checkpoints/${ownerChat.uid}`, "", { flag: "wx" })
+          .catch(error => { if (error.code !== "EEXIST") throw error; });
+      }
+      break;
+    }
+    waitingForOwner = true;
     console.log("plow-boot: waiting for the first inbound message");
-    const inbound = await waitForInbound(base, process.env.PLOW_AGENT_TOKEN);
-    identity = await identityFromApi(base, process.env.PLOW_AGENT_TOKEN);
-    await mkdir("/var/lib/plow/plow-checkpoints", { recursive: true });
-    await writeFile(`/var/lib/plow/plow-checkpoints/${inbound.chatUid}`, `first:${inbound.messageUid}`, { flag: "wx" })
-      .catch(error => { if (error.code !== "EEXIST") throw error; });
   }
+  if (!identity) throw new Error("Identity not resolved");
   const config = renderConfig(identity, base);
   await mkdir("/var/lib/plow/workspace", { recursive: true });
   const prompt = await readFile("/opt/plow/prompt/AGENTS.md", "utf8");
