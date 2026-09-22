@@ -59,12 +59,13 @@ retries transient network, 429 and 5xx failures up to ten attempts. If the
 owner's chat exists, boot starts OpenClaw; otherwise it waits for an inbound
 message and reads identity again. An inbound without an owner's chat keeps
 waiting; transient failures on these wake reads also return to the socket without
-retrying identity. Outbound events and reconnects do not trigger identity reads.
+retrying identity. Each reconnect reads identity once, without retries, to catch
+owner contact during the disconnect. Outbound events do not trigger identity reads.
 
 There is no identity polling or periodic socket renewal. Failed connections
 retry with backoff from one second up to sixty seconds; ticket and WebSocket
 setup each have a ten-second timeout. The socket pings every thirty seconds
-and reconnects if the previous ping has no pong. Boot uses the plugin's `ws`
+and reconnects if the previous ping has no pong. Boot installs its own `ws`
 dependency for protocol ping/pong support. A healthy idle socket has no hold
 timeout.
 

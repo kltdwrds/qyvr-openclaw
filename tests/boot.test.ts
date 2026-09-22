@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile, symlink } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createRequire, stripTypeScriptTypes } from "node:module";
 import { tmpdir } from "node:os";
@@ -13,22 +13,22 @@ import { probeIdentity } from "../boot/probe-fixture.ts";
 const packageUrl = new URL("../plugin/package.json", import.meta.url);
 const { WebSocketServer } = createRequire(packageUrl)("ws");
 
-for (const scenario of ["restart", "401", "503", "silent", "early", "no-owner", "quiet", "drops", "buffered", "wake-503"] as const)
+for (const scenario of ["restart", "401", "503", "silent", "early", "no-owner", "quiet", "drops", "buffered", "wake-503", "reconnect", "reconnect-503"] as const)
 test(`socket-first boot: ${scenario}`, { timeout: 200_000 }, async t => {
   const root = await mkdtemp(join(tmpdir(), "plow-boot-"));
   const boot = new URL("../boot/", import.meta.url);
+  await symlink(new URL("node_modules", boot).pathname, join(root, "node_modules"));
   for (const name of await readdir(boot)) {
     if (!name.endsWith(".ts")) continue;
     const source = (await readFile(new URL(name, boot), "utf8"))
-      .replaceAll("/var/lib/plow", `${root}/state`).replaceAll("/opt/plow/prompt/AGENTS.md", `${root}/prompt.md`)
-      .replaceAll('"../plugin/package.json"', JSON.stringify(packageUrl.href));
+      .replaceAll("/var/lib/plow", `${root}/state`).replaceAll("/opt/plow/prompt/AGENTS.md", `${root}/prompt.md`);
     await writeFile(join(root, name.replace(/\.ts$/, ".js")), stripTypeScriptTypes(source.replaceAll(/(from "\.\/[^"\n]+)\.ts"/g, '$1.js"')));
   }
   await writeFile(join(root, "process.js"), `
     import { listen } from ${JSON.stringify(new URL("../plugin/transport.ts", import.meta.url).href)};
     export async function startGateway() {
       console.log("GATEWAY_STARTED");
-      if (${JSON.stringify(scenario)} !== "early") return;
+      if (!["early", "reconnect"].includes(${JSON.stringify(scenario)})) return;
       const abort = new AbortController();
       await listen({ apiBase: process.env.PLOW_API_BASE, accountId: "chat", lineUid: "ln_probe", ownerChatUid: "cht_probe" },
         abort.signal, console.log, async (_chat, message) => {
@@ -60,7 +60,7 @@ test(`socket-first boot: ${scenario}`, { timeout: 200_000 }, async t => {
       if (scenario === "401" && performance.now() - started < 60_000) response.statusCode = 401;
       if (scenario === "503" && identityReads === 1) response.statusCode = 503;
       body = owner ? probeIdentity : { line: { uid: "ln_probe" }, chats: [] };
-      if (scenario === "wake-503" && identityReads === 2) response.statusCode = 503;
+      if (["wake-503", "reconnect-503"].includes(scenario) && identityReads === 2) response.statusCode = 503;
       if (scenario === "buffered" && identityReads === 1) {
         owner = true;
         for (const socket of sockets.clients) socket.send(JSON.stringify({
@@ -118,9 +118,11 @@ test(`socket-first boot: ${scenario}`, { timeout: 200_000 }, async t => {
     }
     if (scenario === "silent") {
       const reconnected = once(server, "held");
+      const checked = once(server, "identity");
       [socket] = await reconnected;
+      await checked;
       assert.ok(performance.now() - started < 65_000, "missed pong reconnects by second 30-second heartbeat plus backoff");
-      assert.equal(identityReads, 1, "reconnect never polls identity");
+      assert.equal(identityReads, 2, "reconnect reads identity once");
     }
     if (scenario === "no-owner" || scenario === "wake-503") {
       const checked = once(server, "identity");
@@ -131,15 +133,33 @@ test(`socket-first boot: ${scenario}`, { timeout: 200_000 }, async t => {
       assert.ok(!stderr.includes("parked"), stderr);
       assert.ok(!stdout.includes("GATEWAY_STARTED"));
     }
+    if (scenario === "reconnect" || scenario === "reconnect-503") {
+      const reconnected = once(server, "held");
+      const checked = once(server, "identity", { signal: AbortSignal.timeout(5_000) });
+      const disconnected = once(socket, "close");
+      socket.close();
+      await disconnected;
+      owner = true; // The text lands while no socket is subscribed.
+      [socket] = await reconnected;
+      await checked;
+      if (scenario === "reconnect") {
+        await once(child, "close", { signal: AbortSignal.timeout(5_000) });
+        assert.deepEqual(replies, ["before-subscribe", "second"]);
+      } else {
+        await sleep(3_500);
+        assert.equal(identityReads, 2, "failed reconnect read does not retry on a timer");
+        assert.ok(!stdout.includes("GATEWAY_STARTED"));
+      }
+    }
     owner = true;
-    socket.send(JSON.stringify({ event_type: "message_received", chat_id: "cht_probe", data: { message: message("second") } }));
+    if (scenario !== "reconnect") socket.send(JSON.stringify({ event_type: "message_received", chat_id: "cht_probe", data: { message: message("second") } }));
   }
   const [code] = await closed;
   assert.equal(code, 0, stderr);
   assert.ok(stdout.includes("GATEWAY_STARTED"), stdout);
   if (scenario !== "401" && scenario !== "503") {
     assert.equal(await readFile(`${root}/state/plow-checkpoints/cht_probe`, "utf8"),
-      scenario === "restart" ? "already-acked" : scenario === "early" ? "second" : "");
+      scenario === "restart" ? "already-acked" : ["early", "reconnect"].includes(scenario) ? "second" : "");
   }
   if (scenario === "early") assert.deepEqual(replies, ["before-subscribe", "second"]);
   if (scenario === "401") { assert.ok(identityReads > 1); assert.ok(performance.now() - started >= 60_000); }
@@ -150,4 +170,19 @@ test(`socket-first boot: ${scenario}`, { timeout: 200_000 }, async t => {
     assert.ok(tickets[2].time - tickets[1].time >= 2_000);
   }
   t.diagnostic(`gateway started; identity reads=${identityReads}; connections=${connections}; replies=${JSON.stringify(replies)}`);
+});
+
+test("boot socket imports with only its own installed dependencies", async t => {
+  const boot = new URL("../boot/", import.meta.url);
+  const manifest = JSON.parse(await readFile(new URL("package.json", boot), "utf8"));
+  assert.equal(manifest.dependencies.ws, "8.21.3");
+  const root = await mkdtemp(join(tmpdir(), "plow-boot-isolated-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "inbound.mjs"), stripTypeScriptTypes(await readFile(new URL("inbound.ts", boot), "utf8")));
+  await symlink(new URL("node_modules", boot).pathname, join(root, "node_modules"));
+  const child = spawn(process.execPath, [join(root, "inbound.mjs")], { stdio: ["ignore", "ignore", "pipe"] });
+  let stderr = "";
+  child.stderr.on("data", chunk => { stderr += chunk; });
+  const [code] = await once(child, "close");
+  assert.equal(code, 0, stderr);
 });

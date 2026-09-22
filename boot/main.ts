@@ -14,8 +14,7 @@ try {
   process.env.PLOW_MCP_BRIDGE_TOKEN = randomBytes(32).toString("hex");
   let identity: Identity | undefined;
   let waitingForOwner = false;
-  for await (const event of inboundEvents(base, process.env.PLOW_AGENT_TOKEN)) {
-    if (event === "connected" && identity) continue;
+  for await (const _event of inboundEvents(base, process.env.PLOW_AGENT_TOKEN)) {
     const resolved = await identityFromApi(base, process.env.PLOW_AGENT_TOKEN, !identity);
     if (!resolved) continue;
     identity = resolved;

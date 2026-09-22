@@ -1,13 +1,11 @@
 import { on } from "node:events";
-import { createRequire } from "node:module";
 import { setTimeout as sleep } from "node:timers/promises";
-
-const WebSocket = createRequire(new URL("../plugin/package.json", import.meta.url))("ws");
+import WebSocket from "ws";
 
 export async function* inboundEvents(base: string, token: string): AsyncGenerator<"connected" | "inbound"> {
   let backoff = 1_000;
   for (;;) {
-    let socket: InstanceType<typeof WebSocket> | undefined;
+    let socket: WebSocket | undefined;
     let setupTimer: NodeJS.Timeout | undefined;
     let heartbeat: NodeJS.Timeout | undefined;
     let frames: ReturnType<typeof on> | undefined;
