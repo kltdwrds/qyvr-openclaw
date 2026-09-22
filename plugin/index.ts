@@ -93,6 +93,13 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
         replyOptions: { onAgentRunTerminalOutcome: outcome => { completed = outcome === "completed"; if (!completed) failure = new Error("Agent turn failed"); } },
         delivery: {
           observeMessageSent: true,
+          preparePayload: payload => {
+            if (payload.isError) {
+              failure = new Error("Agent reply failed");
+              return null;
+            }
+            return failure || payload.isFallbackNotice ? null : payload;
+          },
           deliver: async payload => {
             const sent = await send(account, chat.uid, payload.text ?? "", payload.mediaUrls ?? (payload.mediaUrl ? [payload.mediaUrl] : []), true);
             log(`delivered chat=${chat.uid} message=${sent.messageId}`);

@@ -9,10 +9,10 @@ const require = createRequire(new URL("../plugin/package.json", import.meta.url)
 const { emitDiagnosticEvent } = await import(require.resolve("openclaw/plugin-sdk/diagnostic-runtime"));
 type Dispatch = {
   replyOptions: { onAgentRunTerminalOutcome: (outcome: string) => void };
-  delivery: { observeMessageSent?: boolean; deliver: (payload: { text: string }) => Promise<unknown> };
+  delivery: { observeMessageSent?: boolean; preparePayload?: (payload: { text: string; isError?: boolean; isFallbackNotice?: boolean }) => unknown; deliver: (payload: { text: string }) => Promise<unknown> };
 };
 
-for (const trusted of [false, true]) for (const outcome of trusted ? ["delivered"] as const : ["aborted", "failed", "empty", "delivered", "silent", "duplicate", "native-source", "native-other"] as const) test(`turn checkpoints only a confirmed outcome: ${outcome}, trusted=${trusted}`, async t => {
+for (const trusted of [false, true]) for (const outcome of trusted ? ["delivered"] as const : ["aborted", "failed", "empty", "delivered", "silent", "duplicate", "native-source", "native-other", "error-notice", "fallback-notice", "terminal-notice"] as const) test(`turn checkpoints only a confirmed outcome: ${outcome}, trusted=${trusted}`, async t => {
   const { root, server, apiBase, abortAfter } = await websocketFixture(t);
   const controller = abortAfter();
   const account = { apiBase, accountId: "chat", lineUid: "line" };
@@ -33,6 +33,17 @@ for (const trusted of [false, true]) for (const outcome of trusted ? ["delivered
       inbound: { buildContext: async (value: typeof context) => { context = value; return {}; }, dispatch: async (dispatch: Dispatch) => {
         if (outcome === "failed") { controller.abort(); throw new Error("failed dispatch"); }
         if (outcome !== "aborted" && outcome !== "duplicate") dispatch.replyOptions.onAgentRunTerminalOutcome("completed");
+        if (outcome === "terminal-notice") {
+          dispatch.replyOptions.onAgentRunTerminalOutcome("failed");
+          const raw = { text: "runtime terminal fallback" };
+          if (!dispatch.delivery.preparePayload || dispatch.delivery.preparePayload(raw) !== null) await dispatch.delivery.deliver(raw);
+        }
+        if (outcome === "error-notice" || outcome === "fallback-notice") {
+          const raw = { text: "runtime diagnostic", ...(outcome === "error-notice" ? { isError: true } : { isFallbackNotice: true }) };
+          if (!dispatch.delivery.preparePayload || dispatch.delivery.preparePayload(raw) !== null) await dispatch.delivery.deliver(raw);
+          if (outcome === "error-notice") dispatch.replyOptions.onAgentRunTerminalOutcome("failed");
+          else await dispatch.delivery.deliver({ text: "fallback answer" });
+        }
         if (outcome === "delivered") { observation = dispatch.delivery.observeMessageSent; await dispatch.delivery.deliver({ text: "reply" }); }
         if (outcome === "native-source") {
           await assert.rejects(channel!.outbound.sendText({ cfg: { channels: { plow: account } }, accountId: "chat", to: "chat", text: "native reply" }), /reply normally/i);
@@ -40,7 +51,7 @@ for (const trusted of [false, true]) for (const outcome of trusted ? ["delivered
         }
         if (outcome === "native-other") await channel!.outbound.sendText({ cfg: { channels: { plow: account } }, accountId: "chat", to: "other", text: "native reply" });
         if (outcome === "duplicate") emitDiagnosticEvent({ type: "message.processed", channel: "plow", messageId: "inbound", sessionKey: "main", outcome: "skipped", reason: "duplicate" });
-        if (outcome !== "duplicate") controller.abort();
+        if (outcome !== "duplicate" && outcome !== "error-notice" && outcome !== "terminal-notice") controller.abort();
         return { dispatched: true, dispatchResult: { deliberateSilentTerminalReply: outcome === "silent" } };
       } },
     } },
@@ -51,6 +62,11 @@ for (const trusted of [false, true]) for (const outcome of trusted ? ["delivered
     const sends = fetch.mock.calls.filter(call => String(call.arguments[0]).endsWith("/messages"));
     assert.equal(sends.length, 1);
     assert.equal(JSON.parse((sends[0].arguments[1] as RequestInit).body as string).body, "ordinary reply");
+  }
+  if (outcome === "error-notice" || outcome === "fallback-notice" || outcome === "terminal-notice") {
+    const texts = fetch.mock.calls.filter(call => String(call.arguments[0]).endsWith("/messages")).map(call => JSON.parse((call.arguments[1] as RequestInit).body as string).body);
+    assert.equal(texts.length, 1);
+    assert.equal(texts[0], outcome === "fallback-notice" ? "fallback answer" : "I couldn't finish handling your last message. Part of the request may have already happened, so please check before resending.");
   }
   if (outcome === "delivered") assert.equal(observation, true);
   if (outcome === "duplicate") assert.ok(logs.some(text => text.startsWith("turn incomplete")));
