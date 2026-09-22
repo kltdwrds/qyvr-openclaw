@@ -60,19 +60,20 @@ Channel sender IDs and browser profiles are not assumed to be linked.
 
 ## Local test signer
 
-The signer stands in for Plow assertion issuance. It supplies fixture identities
-and fixture ingress addresses; it does not implement login or membership.
+The signer stands in for Plow assertion issuance. It supplies fixture identities and signs the client address observed by the test
+ingress; it does not implement login or membership.
 Keep the private file outside the image and source tree:
 
 ```sh
 node teammate/sign-test-assertion.mjs init /tmp/team-private.json /tmp/team-public.json
-node teammate/sign-test-assertion.mjs sign /tmp/team-private.json test-ingress test-host account-creator 192.0.2.10
+node teammate/sign-test-assertion.mjs sign /tmp/team-private.json test-ingress test-host account-creator CLIENT_IP
 ```
 
 Configure the adapter with the corresponding issuer, host and public file. A
 scripted browser client adds the signed assertion on every request and upgrade.
-The test-only address above models the ingress claim; production must attest
-the real address. Remove the test keys after use.
+Use the real non-loopback address observed by the test ingress for `CLIENT_IP`.
+A loopback client must fail attribution; do not substitute an invented address.
+Remove the test keys after use.
 
 The local proof covers a scripted browser → adapter → pinned OpenClaw in Docker.
 Plow login, membership, assertion issuance and the hosting transport are stubbed.
