@@ -16,9 +16,9 @@ export async function websocketFixture(t: TestContext) {
     await new Promise<void>(resolve => server.close(resolve));
     await rm(root, { recursive: true });
   });
-  const abortAfter = () => {
+  const abortAfter = (ms = 2000) => {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2000);
+    const timeout = setTimeout(() => controller.abort(new DOMException("WebSocket fixture deadline exceeded", "TimeoutError")), ms);
     t.after(() => { clearTimeout(timeout); controller.abort(); });
     return controller;
   };

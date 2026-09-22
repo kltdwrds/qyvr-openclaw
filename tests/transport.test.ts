@@ -104,7 +104,7 @@ test("recovery beyond the seen cache does not replay buffered frames or rewind t
   const { root, server, apiBase, abortAfter } = await websocketFixture(t);
   await mkdir(`${root}/plow-checkpoints`);
   await writeFile(`${root}/plow-checkpoints/group`, "old");
-  const controller = abortAfter();
+  const controller = abortAfter(30_000);
   const chat = { uid: "group", status: "active", participants: [{ type: "agent", relationship: "self", line: { uid: "line" } }] };
   const messages = Array.from({ length: 514 }, (_, i) => ({ uid: `message-${i}`, direction: "inbound", sender: { type: "member" } }));
   t.mock.method(globalThis, "fetch", async (url: string) => {
@@ -124,6 +124,8 @@ test("recovery beyond the seen cache does not replay buffered frames or rewind t
     received.push(message.uid);
     return "completed";
   });
+  const deadlineFired = controller.signal.reason?.name === "TimeoutError";
+  assert.equal(deadlineFired, false, "514-message recovery exceeded its 30,000 ms deadline");
   assert.deepEqual(received, [...messages.map(message => message.uid), "live"]);
 });
 
