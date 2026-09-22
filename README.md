@@ -68,8 +68,8 @@ Without a cached owner, the fallback lookup refuses truncated listings.
 The API currently returns complete listings.
 Socket drops reconnect with backoff; the plugin never re-reads identity.
 
-Without a checkpoint, the newest inbound member message in the owner DM is
-first contact, including a message sent before the plugin connects.
+Without a checkpoint, an earlier owner-DM message buffered during baseline recovery runs first.
+Otherwise, the newest inbound member message is first contact, even if sent before the plugin connects.
 Chat checkpoints survive restarts. Chats omitted from a truncated listing
 recover on their first live frame. Optional history failures still dispatch the
 current message. Email threads have separate sessions, shared by their senders,
