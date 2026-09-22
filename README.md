@@ -52,15 +52,15 @@ Set `PLOW_API_BASE` to the API root without `/v1`. Local runs also need
 `PLOW_AGENT_TOKEN`; cloud hosts can inject it. Use an API endpoint you control.
 Agent state lives in the persistent `/var/lib/plow` volume.
 
-An existing owner's chat starts immediately after connection. Otherwise the
-agent waits for first contact over WebSocket, without identity polling. Initial
-identity lookup tolerates 401/403 for 120 seconds and retries network/429/5xx
+The gateway starts after one bounded identity lookup, even before the owner has a
+chat. Identity lookup tolerates 401/403 for 120 seconds and retries network/429/5xx
 failures ten times. Invalid identity or exhausted boot retries leave the
-container running with a diagnostic error. Socket drops reconnect with backoff.
-Each inbound or reconnect then reads identity once; a transient failure waits
-for another event.
+container running with a diagnostic error. The plugin subscribes before listing
+chats, discovers the active owner DM from its roster, and buffers messages during
+baseline recovery. Multiple owner DMs are refused rather than choosing one.
+Socket drops reconnect with backoff; the plugin never re-reads identity.
 
-Messages received while boot waits are recovered when the owner chat appears.
+The first live owner-chat message without a checkpoint is first contact.
 Chat checkpoints survive restarts. Chats omitted from a truncated listing
 recover on their first live frame. Optional history failures still dispatch the
 current message. Email threads have separate sessions, shared by their senders,

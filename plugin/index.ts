@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { defineChannelPluginEntry, type ChannelPlugin, type PluginRuntime, type OpenClawConfig } from "openclaw/plugin-sdk/channel-core";
 import { loadWebMedia } from "openclaw/plugin-sdk/web-media";
-import { request, listen, accepts, HttpError, DeliveryUnknownError, type Account, type Chat, type Message, type TurnOutcome } from "./transport.ts";
+import { request, listen, accepts, ownerChat, HttpError, DeliveryUnknownError, type Account, type Chat, type Message, type TurnOutcome } from "./transport.ts";
 
 let runtime: PluginRuntime;
 const activeTurn = new AsyncLocalStorage<{ chat: Chat; messageUid: string; deliveryUnknown?: boolean; replyDelivered?: boolean }>();
@@ -21,6 +21,7 @@ async function requestWithDeliveryState<T>(account: Account, path: string, body:
 }
 
 async function send(account: Account, to: string, text: string, mediaUrls: string[] = [], reply = false) {
+  if (to === "plow-owner") to = (await ownerChat(account)).uid;
   const turn = activeTurn.getStore();
   if (!reply && turn?.chat.uid === to) throw new Error("To reply in the current conversation, reply normally instead of using message(action=send).");
   if (!accepts(account, await request<Chat>(account, `/chats/${to}`))) {
@@ -48,7 +49,7 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
   const senderIsOwner = sender.type === "member" && chat.participants.some(p => p.type === "member" && p.uid === senderId && p.role === "owner");
   const senderName = sender.type === "member" ? sender.display_name : sender.line.display_name;
   const kind = account.accountId === "email" || chat.participants.length === 2 ? "direct" : "group";
-  const peer = { kind, id: account.accountId === "email" || kind === "group" ? chat.uid : senderId } as const;
+  const peer = { kind, id: account.accountId === "email" || kind === "group" ? chat.uid : senderIsOwner ? "plow-owner" : senderId } as const;
   const route = runtime.channel.routing.resolveAgentRoute({ cfg, channel: "plow", accountId: account.accountId, peer });
   const media = [];
   if (account.accountId === "chat") {
@@ -66,7 +67,7 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
   }));
   const ctxPayload = await runtime.channel.inbound.buildContext({
     channel: "plow", accountId: account.accountId, messageId: message.uid, timestamp: Date.parse(message.created_at),
-    from: senderId, sender: { id: senderIsOwner ? String(cfg.commands!.ownerAllowFrom![0]) : senderId, name: senderName, isBot: sender.type === "agent" },
+    from: senderId, sender: { id: senderIsOwner ? "plow-owner" : senderId, name: senderName, isBot: sender.type === "agent" },
     conversation: { kind, id: chat.uid, label: chat.display_name, routePeer: peer },
     route: { ...route, routeSessionKey: route.sessionKey }, reply: { to: chat.uid, replyToId: message.reply_to?.uid },
     message: { inboundHistory: history.map(m => ({
@@ -128,8 +129,9 @@ const plugin: ChannelPlugin<Account> = {
   },
   agentPrompt: { messageToolHints: () => ["Plow message(action=send) is for OTHER conversations; to reply in the current conversation, just answer normally."] },
   messaging: {
+    inferTargetChatType: ({ to }) => to === "plow-owner" ? "direct" : undefined,
     normalizeTarget: raw => raw.trim().replace(/^plow:/i, ""),
-    targetResolver: { looksLikeId: (raw, normalized) => /^cht_[A-Za-z0-9_-]+$/.test(normalized ?? raw.trim().replace(/^plow:/i, "")), hint: "Use a Plow chat uid (cht_…)." },
+    targetResolver: { looksLikeId: (raw, normalized) => (normalized ?? raw.trim().replace(/^plow:/i, "")) === "plow-owner" || /^cht_[A-Za-z0-9_-]+$/.test(normalized ?? raw.trim().replace(/^plow:/i, "")), hint: "Use a Plow chat uid (cht_…)." },
   },
   gateway: {
     startAccount: async ctx => {
@@ -166,8 +168,8 @@ export default defineChannelPluginEntry({
           isError: true, content: [{ type: "text", text: "Plow configuration is unavailable." }], details: {},
         };
         const account = plugin.config.resolveAccount(context.config, "chat");
-        const ownerChat = await request<Chat>(account, `/chats/${account.ownerChatUid}`);
-        const owner = ownerChat.participants.find(p => p.type === "member" && p.role === "owner");
+        const home = await ownerChat(account);
+        const owner = home.participants.find(p => p.type === "member" && p.role === "owner");
         if (owner?.type !== "member" || !owner.provider_key) throw new Error("The owner's chat has no owner handle");
         const turn = activeTurn.getStore();
         if (!turn) throw new Error("Starting a thread requires an active message");

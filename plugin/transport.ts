@@ -13,7 +13,7 @@ export type Message = {
 };
 export type TurnOutcome = "completed" | "incomplete";
 export type Page<T> = { data: T[]; has_more: boolean };
-export type Account = { accountId: string; apiBase: string; lineUid: string; ownerChatUid: string; emailLineUid?: string };
+export type Account = { accountId: string; apiBase: string; lineUid: string; emailLineUid?: string };
 
 export class HttpError extends Error {
   status: number;
@@ -42,6 +42,22 @@ export function accepts(account: Account, chat: Chat): boolean {
   return chat.status === "active" && chat.participants.some(p => p.type === "agent" && p.relationship === "self" && p.line.uid === line);
 }
 
+export function findOwnerChat(account: Account, chats: Chat[]): Chat | undefined {
+  const owners = chats.filter(chat => chat.status === "active" && chat.participants.length === 2 &&
+    chat.participants.some(p => p.type === "agent" && p.relationship === "self" && p.line.uid === account.lineUid) &&
+    chat.participants.some(p => p.type === "member" && p.role === "owner"));
+  if (owners.length > 1) throw new Error(`Expected one owner's chat; found ${owners.length}`);
+  return owners[0];
+}
+
+export async function ownerChat(account: Account): Promise<Chat> {
+  const listing = await request<Page<Chat>>(account, "/chats");
+  if (listing.has_more) throw new Error("Cannot resolve owner from a truncated chat listing");
+  const chat = findOwnerChat(account, listing.data);
+  if (!chat) throw new Error("No owner's chat discovered");
+  return chat;
+}
+
 // Pages run newest-first; starting_after means older than the page cursor.
 // A first:<uid> checkpoint includes that message, but none of its older history.
 export async function recover(account: Account, chat: string, checkpoint: string): Promise<Message[]> {
@@ -65,6 +81,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
   const dir = `${root}/plow-checkpoints`;
   await mkdir(dir, { recursive: true });
   const checkpoints = new Map<string, string>();
+  const discovered = new Map<string, Chat>();
   const seen = new Set<string>();
   const contextualized = new Set<string>();
   let attempt = 0;
@@ -81,13 +98,15 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
     if (signal.aborted || seen.has(message.uid) || checkpoints.get(chatUid) === message.uid) return;
     const chat = await request<Chat>(account, `/chats/${chatUid}`);
     if (!accepts(account, chat)) return;
+    discovered.set(chat.uid, chat);
+    const owner = findOwnerChat(account, [...discovered.values()]);
     const sender = message.sender;
     let notifyFailure = false;
     if (message.direction === "inbound" && (sender.type === "member" || (account.accountId === "chat" && sender.relationship === "peer"))) {
       let outcome: TurnOutcome = "incomplete";
       try {
         const checkpoint = checkpoints.get(chat.uid);
-        const firstContact = account.accountId === "chat" && chat.uid === account.ownerChatUid && (checkpoint === "" || checkpoint === `first:${message.uid}`);
+        const firstContact = account.accountId === "chat" && chat.uid === owner?.uid && (checkpoint === "" || checkpoint === `first:${message.uid}`);
         let history: Message[] = [];
         let historyLoaded = contextualized.has(chat.uid);
         if (!historyLoaded) {
@@ -155,7 +174,9 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
       const listing = await request<Page<Chat>>(account, "/chats");
       if (listing.has_more) log("warning: Plow chat listing is truncated; continuing with returned chats");
       const chats = listing.data.filter(chat => accepts(account, chat));
-      await request(account, "/agents/me");
+      discovered.clear();
+      for (const chat of chats) discovered.set(chat.uid, chat);
+      findOwnerChat(account, chats);
       if (account.accountId === "chat") {
         for (const chat of chats) {
           if (checkpoints.has(chat.uid)) continue;
@@ -165,8 +186,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
             const page = await request<Page<Message>>(account, `/chats/${chat.uid}/messages?limit=1`);
             const newest = page.data[0];
-            checkpoint = chat.uid === account.ownerChatUid && newest?.direction === "inbound" && newest.sender.type === "member"
-              ? `first:${newest.uid}` : newest?.uid ?? "";
+            checkpoint = newest?.uid ?? "";
             await ack(chat.uid, checkpoint);
             // Include frames that arrived while the baseline was being persisted.
             if (bufferedChats.has(chat.uid)) {
@@ -201,6 +221,7 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
             catch (error) {
               if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
               checkpoint = `first:${event.data.message.uid}`;
+              await ack(event.chat_id, checkpoint);
             }
             checkpoints.set(event.chat_id, checkpoint);
           }

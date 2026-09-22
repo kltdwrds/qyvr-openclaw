@@ -70,14 +70,3 @@ test("boot uses the identity endpoint that includes agent.name", async t => {
   });
   assert.equal((await identityFromApi("http://fixture", "test-token"))?.agent?.name, "Juniper");
 });
-
-for (const status of [429, 503, "network"]) test(`wake identity failure returns to socket without retry: ${status}`, async t => {
-  let calls = 0;
-  t.mock.method(globalThis, "fetch", async () => {
-    calls++;
-    if (status === "network") throw new TypeError("fetch failed");
-    return new Response(null, { status });
-  });
-  assert.equal(await identityFromApi("http://fixture", "test-token", false), undefined);
-  assert.equal(calls, 1);
-});

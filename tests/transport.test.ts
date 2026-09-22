@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { websocketFixture } from "./ws-fixture.ts";
 import fs, { mkdir, readFile, writeFile } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
-import { listen, DeliveryUnknownError, recover, type Account, type Message } from "../plugin/transport.ts";
+import { listen, DeliveryUnknownError, recover, findOwnerChat, ownerChat, type Account, type Chat, type Message } from "../plugin/transport.ts";
 
 const account = { apiBase: "http://fixture", accountId: "chat" } as Account;
 const message = (uid: string) => ({ uid }) as Message;
@@ -88,7 +88,7 @@ test("a frame arriving while a synthesized checkpoint is written is recovered", 
   syncBuiltinESMExports();
   t.after(() => { writer.mock.restore(); syncBuiltinESMExports(); });
   const received: string[] = [];
-  await listen({ ...account, apiBase, lineUid: "line", ownerChatUid: "home" }, controller.signal, () => {}, async (_chat, message) => {
+  await listen({ ...account, apiBase, lineUid: "line" }, controller.signal, () => {}, async (_chat, message) => {
     received.push(message.uid);
     controller.abort();
     return "completed";
@@ -148,21 +148,21 @@ for (const outcome of ["completed", "incomplete"] as const) test(`unknown delive
   assert.equal(await readFile(`${root}/plow-checkpoints/chat`, "utf8"), outcome === "completed" ? "next" : "uncertain");
 });
 
-for (const scenario of ["waited", "pending", "buffered", "answered", "peer", "group"]) test(`first contact and restart: ${scenario}`, async t => {
+for (const scenario of ["waited", "pending", "buffered", "answered", "peer", "group", "fresh"]) test(`first contact and restart: ${scenario}`, async t => {
   const { root, server, apiBase, abortAfter } = await websocketFixture(t);
   if (scenario === "waited") {
     await mkdir(`${root}/plow-checkpoints`);
     await writeFile(`${root}/plow-checkpoints/home`, "");
   }
-  const fixture = { ...account, apiBase, lineUid: "line", ownerChatUid: scenario === "group" ? "other" : "home" };
+  const fixture = { ...account, apiBase, lineUid: "line" };
   const sender = { type: "member", uid: "owner", role: "owner", display_name: "Owner" };
-  const chat = { uid: "home", status: "active", participants: [sender, { type: "agent", relationship: "self", line: { uid: "line" } }] };
+  const chat = { uid: "home", status: "active", participants: [sender, { type: "agent", relationship: "self", line: { uid: "line" } }, ...(scenario === "group" ? [{ ...sender, uid: "guest", role: "member" }] : [])] };
   const first = { uid: "first", body: "What is 17 + 25?", direction: scenario === "answered" ? "outbound" : "inbound",
     sender: scenario === "peer" ? { type: "agent", relationship: "peer", line: { uid: "peer" } } : sender };
   const older = { ...first, uid: "older" };
-  if (scenario === "buffered") server.on("connection", (socket: { send: (text: string) => void }) => socket.send(JSON.stringify({ event_type: "message_received", event_id: "first", chat_id: "home", data: { message: first } })));
+  if (["buffered", "fresh"].includes(scenario)) server.on("connection", (socket: { send: (text: string) => void }) => socket.send(JSON.stringify({ event_type: "message_received", event_id: "first", chat_id: "home", data: { message: first } })));
   t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
-    url.endsWith("/chats") ? { data: [chat], has_more: false } : url.endsWith("/chats/home") ? chat : url.includes("/messages?") ? { data: url.includes("limit=1") || scenario === "waited" ? [first] : [first, older], has_more: false } : { ticket: "ticket" }));
+    url.endsWith("/chats") ? { data: scenario === "fresh" ? [] : [chat], has_more: false } : url.endsWith("/chats/home") ? chat : url.includes("/messages?") ? { data: url.includes("limit=1") || scenario === "waited" ? [first] : [first, older], has_more: false } : { ticket: "ticket" }));
   const turns: { uid: string; firstContact: boolean }[] = [];
   for (let boot = 0; boot < 2; boot++) {
     const controller = abortAfter();
@@ -172,7 +172,7 @@ for (const scenario of ["waited", "pending", "buffered", "answered", "peer", "gr
     });
     assert.equal(await readFile(`${root}/plow-checkpoints/home`, "utf8"), "first");
   }
-  assert.deepEqual(turns, ["waited", "pending", "buffered"].includes(scenario) ? [{ uid: "first", firstContact: true }] : []);
+  assert.deepEqual(turns, ["waited", "buffered", "fresh"].includes(scenario) ? [{ uid: "first", firstContact: true }] : []);
 });
 
 test("first-contact recovery includes its message and newer arrivals, excluding older history", async t => {
@@ -287,7 +287,7 @@ for (const count of [1, 2]) for (const arrival of ["listing", "baseline"] as con
         ? { data: url.includes("limit=1") ? messages.slice(-1) : [...messages].reverse(), has_more: false } : { ticket: "ticket" });
   });
   const received: string[] = [];
-  await listen({ ...account, apiBase, lineUid: "line", ownerChatUid: "home" }, controller.signal, () => {}, async (_chat, message) => {
+  await listen({ ...account, apiBase, lineUid: "line" }, controller.signal, () => {}, async (_chat, message) => {
     received.push(message.uid);
     if (received.length === count) controller.abort();
     return "completed";
@@ -385,4 +385,50 @@ test("reconnecting does not re-inject history into an already contextualized cha
   });
   assert.deepEqual(delivered, ["1", "2"]);
   assert.equal(historyReads, 1);
+});
+
+test("an interrupted first live owner turn survives restart without boot seeding", async t => {
+  const { server, apiBase, abortAfter } = await websocketFixture(t);
+  const fixture = { ...account, apiBase, lineUid: "line" };
+  const sender = { type: "member", uid: "owner", role: "owner" };
+  const chat = { uid: "home", status: "active", participants: [sender, { type: "agent", relationship: "self", line: { uid: "line" } }] };
+  const first = { uid: "first", direction: "inbound", sender };
+  let boot = 0;
+  server.on("connection", (socket: { send: (text: string) => void }) => {
+    if (!boot) socket.send(JSON.stringify({ event_type: "message_received", event_id: "first", chat_id: "home", data: { message: first } }));
+  });
+  t.mock.method(globalThis, "fetch", async (url: string) => Response.json(
+    url.endsWith("/chats") ? { data: boot ? [chat] : [], has_more: false } : url.endsWith("/chats/home") ? chat :
+    url.includes("/messages?") ? { data: [first], has_more: false } : { ticket: "ticket" }));
+  const turns: boolean[] = [];
+  for (; boot < 2; boot++) {
+    const controller = abortAfter();
+    await listen(fixture, controller.signal, () => {}, async (_chat, _message, firstContact) => {
+      turns.push(firstContact);
+      controller.abort();
+      return boot ? "completed" : "incomplete";
+    });
+  }
+  assert.deepEqual(turns, [true, true]);
+});
+
+test("owner discovery requires the unique active self-line DM with an owner", async t => {
+  const fixture = { ...account, lineUid: "line" };
+  const home: Chat = { uid: "home", status: "active", trusted: true, participants: [
+    { type: "agent", relationship: "self", line: { uid: "line" } },
+    { type: "member", uid: "owner", role: "owner", display_name: "Owner" },
+  ] };
+  const others: Chat[] = [
+    { ...home, uid: "inactive", status: "inactive" },
+    { ...home, uid: "group", participants: [...home.participants, home.participants[1]] },
+    { ...home, uid: "email", participants: [{ type: "agent", relationship: "self", line: { uid: "email" } }, home.participants[1]] },
+    { ...home, uid: "peer", participants: [{ type: "agent", relationship: "peer", line: { uid: "line" } }, home.participants[1]] },
+    { ...home, uid: "member", participants: [home.participants[0], { type: "member", uid: "member", role: "member", display_name: "Member" }] },
+  ];
+  assert.equal(findOwnerChat(fixture, others), undefined);
+  assert.equal(findOwnerChat(fixture, [...others, home]), home);
+  assert.throws(() => findOwnerChat(fixture, [home, { ...home, uid: "second" }]), /found 2/);
+  process.env.PLOW_AGENT_TOKEN = "test-token";
+  t.mock.method(globalThis, "fetch", async () => Response.json({ data: [home], has_more: true }));
+  await assert.rejects(ownerChat(fixture), /truncated/);
 });

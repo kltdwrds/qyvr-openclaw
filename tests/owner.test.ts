@@ -30,9 +30,9 @@ for (const kind of ["group", "direct", "email"]) for (const role of ["owner", "m
     } },
   });
   assert.ok(channel);
-  await channel.gateway.startAccount({ account, cfg: { commands: { ownerAllowFrom: ["canonical-owner"] } }, abortSignal: controller.signal, log: { info() {} } });
+  await channel.gateway.startAccount({ account, cfg: { commands: { ownerAllowFrom: ["plow-owner"] } }, abortSignal: controller.signal, log: { info() {} } });
   assert.ok(context);
-  assert.equal(context.sender.id, role === "owner" ? "canonical-owner" : "local-sender");
+  assert.equal(context.sender.id, role === "owner" ? "plow-owner" : "local-sender");
   assert.deepEqual(context.access?.toolPolicy, undefined);
   assert.equal(toolsDisabled, undefined);
   const facts = context.supplemental.channelStructuredContext[0].payload;
@@ -40,7 +40,7 @@ for (const kind of ["group", "direct", "email"]) for (const role of ["owner", "m
   assert.equal(facts.participants[0].role, role);
   assert.equal(context.from, "local-sender");
   assert.equal(context.conversation.id, "chat");
-  const peer = { kind: kind === "group" ? "group" : "direct", id: kind === "direct" ? "local-sender" : "chat" };
+  const peer = { kind: kind === "group" ? "group" : "direct", id: kind === "direct" ? role === "owner" ? "plow-owner" : "local-sender" : "chat" };
   assert.deepEqual(routingPeer, peer);
   assert.deepEqual(context.conversation.routePeer, peer);
   assert.ok(!JSON.stringify([context.message, context.supplemental]).includes(sender.provider_key));

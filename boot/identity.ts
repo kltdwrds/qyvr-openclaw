@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import { findOwnerChat, type Identity } from "./config.ts";
+import { type Identity } from "./config.ts";
 
-export async function identityFromApi(base: string, token: string, retry = true): Promise<Identity | undefined> {
+export async function identityFromApi(base: string, token: string): Promise<Identity> {
   const authDeadline = Date.now() + 120_000;
   let failures = 0;
   for (;;) {
@@ -11,23 +11,21 @@ export async function identityFromApi(base: string, token: string, retry = true)
         headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000),
       });
     } catch {
-      if (!retry) return;
       if (++failures === 10) throw new Error("Identity request failed after 10 attempts");
       await sleep(3_000);
       continue;
     }
     if (response.ok) {
       const identity = await response.json() as Identity;
-      findOwnerChat(identity);
+      if (!identity.line.uid) throw new Error("Identity is missing line uid");
       return identity;
     }
-    if (retry && [401, 403].includes(response.status) && Date.now() < authDeadline) {
+    if ([401, 403].includes(response.status) && Date.now() < authDeadline) {
       console.log(`plow-boot: identity HTTP ${response.status}; waiting for credential propagation`);
       await sleep(Math.min(3_000, authDeadline - Date.now()));
       continue;
     }
     if (response.status === 429 || response.status >= 500) {
-      if (!retry) return;
       if (++failures < 10) { await sleep(3_000); continue; }
     }
     throw new Error(`Identity request refused: HTTP ${response.status}`);

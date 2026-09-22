@@ -8,23 +8,8 @@ export type Identity = {
   mcp_url?: string | null;
 };
 
-export function findOwnerChat(identity: Identity) {
-  if (!identity.line.uid) throw new Error("Identity is missing line uid");
-  const ownerChats = identity.chats.filter(chat => chat.status === "active" &&
-    chat.participants.length === 2 &&
-    chat.participants.some(p => p.type === "agent" && p.relationship === "self" && p.line.uid === identity.line.uid) &&
-    chat.participants.some(p => p.type === "member" && p.role === "owner"));
-  if (ownerChats.length > 1) throw new Error(`Expected one owner's chat; found ${ownerChats.length}`);
-  return ownerChats[0];
-}
-
 export function renderConfig(identity: Identity, apiBase: string) {
-  const ownerChat = findOwnerChat(identity);
-  if (!ownerChat) throw new Error("Expected one owner's chat; found 0");
-  const owner = ownerChat.participants.find(p => p.type === "member" && p.role === "owner");
-  if (owner?.type !== "member" || !owner.uid || !ownerChat.uid || !identity.line.uid) {
-    throw new Error("Identity is missing the owner's chat, line or owner uid");
-  }
+  if (!identity.line.uid) throw new Error("Identity is missing line uid");
   const name = identity.agent?.name;
   if (typeof name !== "string" || !name.trim()) throw new Error(`Identity has no usable agent.name: ${JSON.stringify(name)}`);
   const email = identity.chats.flatMap(chat => chat.participants).find(p =>
@@ -49,12 +34,12 @@ export function renderConfig(identity: Identity, apiBase: string) {
     } } } } : {}),
     plugins: { load: { paths: ["/opt/plow/plugin"] }, entries: { plow: { enabled: true } } },
     channels: { plow: {
-      apiBase, ownerChatUid: ownerChat.uid, lineUid: identity.line.uid,
+      apiBase, lineUid: identity.line.uid,
       ...(email?.type === "agent" ? { emailLineUid: email.line.uid } : {}),
     } },
     session: { dmScope: "per-account-channel-peer", groupScope: "per-group" },
-    bindings: [{ agentId: "main", match: { channel: "plow", accountId: "chat", peer: { kind: "direct", id: owner.uid } }, session: { dmScope: "main" } }],
-    commands: { ownerAllowFrom: [owner.uid] },
+    bindings: [{ agentId: "main", match: { channel: "plow", accountId: "chat", peer: { kind: "direct", id: "plow-owner" } }, session: { dmScope: "main" } }],
+    commands: { ownerAllowFrom: ["plow-owner"] },
     memory: { search: { rememberAcrossConversations: false } },
     // An empty allowlist means unrestricted in OpenClaw.
     skills: { load: { extraDirs: ["/opt/plow/skills"] }, allowBundled: ["plow-no-bundled-skills"] },

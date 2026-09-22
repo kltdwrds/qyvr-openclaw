@@ -10,10 +10,9 @@
       "schema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["apiBase", "ownerChatUid", "lineUid"],
+        "required": ["apiBase", "lineUid"],
         "properties": {
           "apiBase": { "type": "string" },
-          "ownerChatUid": { "type": "string" },
           "lineUid": { "type": "string" },
           "emailLineUid": { "type": "string" }
         }

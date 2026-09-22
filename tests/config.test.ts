@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderConfig, findOwnerChat, type Identity } from "../boot/config.ts";
+import { renderConfig, type Identity } from "../boot/config.ts";
 
 const identity: Identity = {
   agent: { name: "Juniper" },
@@ -13,13 +13,13 @@ const identity: Identity = {
 
 test("only the owner's phone DM becomes main; other peers and groups stay isolated", () => {
   const config = renderConfig(identity, "http://api:8000");
-  assert.equal(config.channels.plow.ownerChatUid, "cht_home");
+  assert.ok(!("ownerChatUid" in config.channels.plow));
   assert.ok(!("ownerMemberUid" in config.channels.plow));
-  assert.deepEqual(config.commands.ownerAllowFrom, ["mem_owner"]);
+  assert.deepEqual(config.commands.ownerAllowFrom, ["plow-owner"]);
   assert.equal(config.session.dmScope, "per-account-channel-peer");
   assert.equal(config.session.groupScope, "per-group");
   assert.deepEqual(config.bindings[0], {
-    agentId: "main", match: { channel: "plow", accountId: "chat", peer: { kind: "direct", id: "mem_owner" } },
+    agentId: "main", match: { channel: "plow", accountId: "chat", peer: { kind: "direct", id: "plow-owner" } },
     session: { dmScope: "main" },
   });
 });
@@ -34,14 +34,15 @@ test("mailbox and group chats cannot displace the owner's DM", () => {
       { type: "member", role: "member", uid: "mem_guest" },
     ] },
   ] }, "http://api:8000");
-  assert.equal(config.channels.plow.ownerChatUid, "cht_home");
+  assert.ok(!("ownerChatUid" in config.channels.plow));
   assert.equal(config.channels.plow.emailLineUid, "ln_mail");
 });
 
-test("ambiguous or missing owner chats are refused", () => {
-  assert.throws(() => renderConfig({ ...identity, chats: [] }, "http://api:8000"), /found 0/);
-  assert.throws(() => renderConfig({ ...identity, chats: [...identity.chats, ...identity.chats] }, "http://api:8000"), /found 2/);
-  assert.throws(() => renderConfig({ ...identity, chats: [{ ...identity.chats[0], status: "inactive" }] }, "http://api:8000"), /found 0/);
+test("boot accepts no owner chat or ambiguous owner chats without waiting", () => {
+  for (const chats of [[], [...identity.chats, ...identity.chats]]) {
+    assert.deepEqual(renderConfig({ ...identity, chats }, "http://api:8000").commands.ownerAllowFrom, ["plow-owner"]);
+  }
+  assert.throws(() => renderConfig({ ...identity, line: { uid: "" } }, "http://api:8000"), /line/);
 });
 
 test("provider and optional MCP use environment references, never credential values", () => {
@@ -79,14 +80,6 @@ test("MCP sessions share the loopback bridge and expire after five idle minutes"
     headers: { Authorization: "Bearer ${PLOW_MCP_BRIDGE_TOKEN}" },
   } } });
 });
-
-test("no owner chat is pending; malformed and ambiguous identities are refused", () => {
-  assert.equal(findOwnerChat({ ...identity, chats: [] }), undefined);
-  assert.equal(findOwnerChat(identity)?.uid, "cht_home");
-  assert.throws(() => findOwnerChat({ ...identity, line: { uid: "" }, chats: [] }), /line/);
-  assert.throws(() => findOwnerChat({ ...identity, chats: [...identity.chats, ...identity.chats] }), /found 2/);
-});
-
 
 test("phone turns cannot block on ask_user", () => {
   assert.deepEqual(renderConfig(identity, "http://api:8000").tools.deny, ["ask_user"]);
