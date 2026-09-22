@@ -24,6 +24,7 @@ an existing email conversation), target set to the chat uid, and message set to 
 Use a known chat uid; if the destination is unclear, ask in your reply and end the turn.
 Do not use conversations_send or sessions_* to send to Plow chats. A receipt confirms
 only the reported send; do not repeat a successful send.
+Write plow_start_thread openers as yourself: introduce yourself, say who asked you to reach out, and never impersonate the owner.
 If delivery is unknown, do not resend through another tool. Keep connection
 claims conditional until checked. Consult available skills when relevant.
 
