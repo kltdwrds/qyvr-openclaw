@@ -71,13 +71,23 @@ test("boot uses the identity endpoint that includes agent.name", async t => {
   assert.equal((await identityFromApi("http://fixture", "test-token"))?.agent?.name, "Juniper");
 });
 
-for (const status of [429, 503, "network"]) test(`wake identity failure returns to socket without retry: ${status}`, async t => {
-  let calls = 0;
-  t.mock.method(globalThis, "fetch", async () => {
-    calls++;
-    if (status === "network") throw new TypeError("fetch failed");
-    return new Response(null, { status });
+for (const status of [429, 503, "network"]) for (const recovers of [true, false])
+  test(`wake identity retries are bounded: ${status}, recovers=${recovers}`, async t => {
+    mockClock(t);
+    let calls = 0;
+    t.mock.method(globalThis, "fetch", async () => {
+      if (++calls === 2 && recovers) return Response.json({ line: { uid: "line" }, chats: [] });
+      if (status === "network") throw new TypeError("fetch failed");
+      return new Response(null, { status });
+    });
+    const result = identityFromApi("http://fixture", "test-token", false);
+    for (let i = 0; i < 3; i++) {
+      await new Promise(resolve => setImmediate(resolve));
+      t.mock.timers.tick(1_000);
+    }
+    assert.equal((await result)?.line.uid, recovers ? "line" : undefined);
+    assert.equal(calls, recovers ? 2 : 3);
+    t.mock.timers.tick(60_000);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(calls, recovers ? 2 : 3, "no background identity polling after the burst");
   });
-  assert.equal(await identityFromApi("http://fixture", "test-token", false), undefined);
-  assert.equal(calls, 1);
-});
