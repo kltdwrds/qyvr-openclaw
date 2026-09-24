@@ -59,7 +59,7 @@ Agent state lives in the persistent `/var/lib/plow` volume.
 
 Set `AGENT_ID` to the Agent Index id to put this agent on
 [the index](https://aiworthusing.com/agent-index): boot then registers the listing,
-with `AGENT_NAME` and `AGENT_BLURB` sent along when they are set, and reports its
+with `AGENT_NAME`, `AGENT_BLURB` and `AGENT_RUNTIME` (default `OpenClaw`) sent along when they are set, and reports its
 token usage every five minutes. The counts come from agentsview, which this
 image installs and which reads OpenClaw's own sessions; boot links them where
 it looks, since this image moves OpenClaw's state off `~/.openclaw`, and each
