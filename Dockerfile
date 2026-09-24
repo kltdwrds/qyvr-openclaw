@@ -39,6 +39,9 @@ RUN curl -fsS --max-time 120 -L -o /tmp/agentsview.tgz \
  && chmod 0755 /usr/local/bin/agentsview
 RUN cd /opt/plow && npm ci --omit=dev --omit=peer --omit=optional --ignore-scripts && node /opt/plow/build.ts && chmod +x /opt/plow/probe
 ENV OPENCLAW_STATE_DIR=/var/lib/plow OPENCLAW_CONFIG_PATH=/var/lib/plow/openclaw.json OPENCLAW_NO_RESPAWN=1 NODE_DISABLE_COMPILE_CACHE=1
+# Which agent this reports as on the Agent Index. A cloud install runs the
+# image with no compose file, so the id has to live in the image.
+ENV AGENT_ID=qyvr-openclaw AGENT_NAME="Nick Fury" AGENT_BLURB="Send me an initiative and I'll assemble you a team"
 # The inherited healthcheck loads config and can race the boot state lock.
 HEALTHCHECK NONE
 USER node
