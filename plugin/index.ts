@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { defineChannelPluginEntry, type ChannelPlugin, type PluginRuntime, type OpenClawConfig } from "openclaw/plugin-sdk/channel-core";
 import { loadWebMedia } from "openclaw/plugin-sdk/web-media";
 import { request, listen, accepts, ownerChat, HttpError, DeliveryUnknownError, type Account, type Chat, type Message, type TurnOutcome } from "./transport.ts";
+import { createBuzzChannel, type BuzzAccount } from "./buzz.ts";
+import { joinHomeroom, loadOrCreateKey } from "./buzz-identity.ts";
 
 let runtime: PluginRuntime;
 const activeTurn = new AsyncLocalStorage<{ chat: Chat; messageUid: string; deliveryUnknown?: boolean; replyDelivered?: boolean }>();
@@ -153,13 +155,41 @@ const plugin: ChannelPlugin<Account> = {
   },
 };
 
-export default defineChannelPluginEntry({
+// Nick in the qyvr homeroom. Enrollment links and revocation notices go to the owner on the Plow line.
+const buzz = createBuzzChannel({
+  runtime: () => runtime,
+  notifyOwner: async (cfg, text) => { await send(plugin.config.resolveAccount(cfg, "chat"), "plow-owner", text); },
+});
+
+const entry = defineChannelPluginEntry({
   id: "plow", name: "Plow", description: "Plow channel", plugin,
   setRuntime: value => { runtime = value; },
   registerFull(api) {
     if (api.registrationMode === "full") api.logger.info("plow channel registered");
   },
   registerCapabilities(api) {
+    // Registered before plow_start_thread, which stays the last tool registered.
+    api.registerTool(context => ({
+      name: "qyvr_enroll", label: "Ask to join the qyvr homeroom",
+      description: "Ask the qyvr control plane to let you into the qyvr homeroom (the owner's Buzz community). Returns an approval link for the owner, or says you are already in or were revoked. Use it when the owner asks for a new enrollment link.",
+      parameters: { type: "object", additionalProperties: false, properties: {} },
+      async execute() {
+        const account = context.config && buzz.config.resolveAccount(context.config, "default") as BuzzAccount;
+        if (!account?.controlUrl) return { isError: true, content: [{ type: "text", text: "The qyvr homeroom is not configured." }], details: {} };
+        const state = process.env.OPENCLAW_STATE_DIR ?? "/var/lib/plow";
+        const dir = `${state}/buzz`;
+        const texts: string[] = [];
+        const joined = await joinHomeroom({
+          dir, qyvrHome: `${state}/qyvr`, key: await loadOrCreateKey(dir), controlUrl: account.controlUrl, force: true,
+          enroll: { name: account.handle, harness: account.harness, model: account.model },
+          notifyOwner: async text => { texts.push(text); },
+        });
+        const text = joined.status === "attested" ? "You are already in the qyvr homeroom."
+          : joined.status === "revoked" ? "You were revoked from the qyvr homeroom; only the owner can undo that."
+          : texts[0] ?? "An approval link was sent less than 15 minutes ago; it is still valid.";
+        return { content: [{ type: "text", text }], details: { status: joined.status } };
+      },
+    }));
     api.registerTool(context => ({
       name: "plow_start_thread", label: "Start a Plow group thread",
       description: "Start a group text on your own Plow line with the owner and the supplied phone numbers. Sends the first message and returns the chat uid; use message with action send, channel plow, accountId chat and that uid as target for follow-ups. Accepts phone numbers, not chat ids or email addresses.",
@@ -194,3 +224,13 @@ export default defineChannelPluginEntry({
     }));
   },
 });
+
+// Both channels come from this one plugin: buzz is registered first so that plow, the owner's line, stays the
+// entry's primary channel.
+export default {
+  ...entry,
+  register(api: Parameters<typeof entry.register>[0]) {
+    if (api.registrationMode !== "cli-metadata" && api.registrationMode !== "tool-discovery") api.registerChannel({ plugin: buzz });
+    entry.register(api);
+  },
+};

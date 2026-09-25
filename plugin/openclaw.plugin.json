@@ -1,20 +1,92 @@
 {
   "id": "plow",
   "name": "Plow",
-  "channels": ["plow"],
-  "contracts": { "tools": ["plow_start_thread"] },
-  "activation": { "onStartup": true },
-  "configSchema": { "type": "object", "additionalProperties": false },
+  "channels": [
+    "plow",
+    "buzz"
+  ],
+  "contracts": {
+    "tools": [
+      "qyvr_enroll",
+      "plow_start_thread"
+    ]
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false
+  },
   "channelConfigs": {
     "plow": {
       "schema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["apiBase", "lineUid"],
+        "required": [
+          "apiBase",
+          "lineUid"
+        ],
         "properties": {
-          "apiBase": { "type": "string" },
-          "lineUid": { "type": "string" },
-          "emailLineUid": { "type": "string" }
+          "apiBase": {
+            "type": "string"
+          },
+          "lineUid": {
+            "type": "string"
+          },
+          "emailLineUid": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "buzz": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "relayUrl",
+          "controlUrl",
+          "allowFrom",
+          "homeroom",
+          "name",
+          "handle",
+          "about",
+          "harness",
+          "model"
+        ],
+        "properties": {
+          "relayUrl": {
+            "type": "string"
+          },
+          "controlUrl": {
+            "type": "string"
+          },
+          "allowFrom": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "homeroom": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "about": {
+            "type": "string"
+          },
+          "harness": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          }
         }
       }
     }

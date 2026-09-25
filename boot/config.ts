@@ -8,7 +8,16 @@ export type Identity = {
   mcp_url?: string | null;
 };
 
-export function renderConfig(identity: Identity, apiBase: string) {
+/** Nick's place in the qyvr homeroom: the Block-hosted Buzz community and its control plane. */
+export const QYVR = {
+  relayUrl: "https://qyvr.communities.buzz.xyz",
+  controlUrl: "https://buzz.qyvr.ai",
+  homeroom: "18a2b64f-e9b9-42ae-bb96-8b01ec8865dc",
+  // Kyle's Buzz identity (npub1c2ug7a9j…): the only author whose mentions start a turn in v0.
+  allowFrom: ["c2b88f74b2f2fed397726b430eb8020e514cfc6c7234bec9fa6d93f4f2769808"],
+};
+
+export function renderConfig(identity: Identity, apiBase: string, env: Record<string, string | undefined> = process.env) {
   const name = identity.agent?.name;
   if (typeof name !== "string" || !name.trim()) throw new Error(`Identity has no usable agent.name: ${JSON.stringify(name)}`);
   const email = identity.chats.flatMap(chat => chat.participants).find(p =>
@@ -33,10 +42,17 @@ export function renderConfig(identity: Identity, apiBase: string) {
       headers: { Authorization: "Bearer ${PLOW_MCP_BRIDGE_TOKEN}" },
     } } } } : {}),
     plugins: { load: { paths: ["/opt/plow/plugin"] }, entries: { plow: { enabled: true } } },
-    channels: { plow: {
-      apiBase, lineUid: identity.line.uid,
-      ...(email?.type === "agent" ? { emailLineUid: email.line.uid } : {}),
-    } },
+    channels: {
+      plow: {
+        apiBase, lineUid: identity.line.uid,
+        ...(email?.type === "agent" ? { emailLineUid: email.line.uid } : {}),
+      },
+      buzz: {
+        relayUrl: QYVR.relayUrl, controlUrl: QYVR.controlUrl, allowFrom: QYVR.allowFrom, homeroom: QYVR.homeroom,
+        name, handle: name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+        about: env.AGENT_BLURB ?? "", harness: "openclaw", model: "glm-5.2",
+      },
+    },
     session: { dmScope: "per-account-channel-peer", groupScope: "per-group" },
     bindings: [{ agentId: "main", match: { channel: "plow", accountId: "chat", peer: { kind: "direct", id: "plow-owner" } }, session: { dmScope: "main" } }],
     commands: { ownerAllowFrom: ["plow-owner"] },
@@ -44,6 +60,6 @@ export function renderConfig(identity: Identity, apiBase: string) {
     // An empty allowlist means unrestricted in OpenClaw.
     skills: { load: { extraDirs: ["/opt/plow/skills"] }, allowBundled: ["plow-no-bundled-skills"] },
     // Keep workspace and durable memory writes local instead of routing them through the Mac relay.
-    tools: { profile: "messaging", sessions: { visibility: "tree" }, alsoAllow: ["read", "write", "edit", "exec", "plow_start_thread"], deny: ["ask_user"] },
+    tools: { profile: "messaging", sessions: { visibility: "tree" }, alsoAllow: ["read", "write", "edit", "exec", "plow_start_thread", "qyvr_enroll"], deny: ["ask_user"] },
   };
 }

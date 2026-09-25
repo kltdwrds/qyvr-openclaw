@@ -1,0 +1,15 @@
+#!/bin/sh
+# The buzz CLI as Nick in the qyvr homeroom. The key and attestation are read from the state volume and
+# passed to this one process in its environment, never in argv.
+set -eu
+here=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+state=${OPENCLAW_STATE_DIR:-/var/lib/plow}
+if [ ! -r "$state/buzz/key" ]; then
+  echo '{"error":"not_ready","message":"no homeroom key yet; the buzz channel creates it at startup"}' >&2
+  exit 3
+fi
+BUZZ_PRIVATE_KEY=$(cat "$state/buzz/key")
+BUZZ_AUTH_TAG=$(cat "$state"/qyvr/*/auth-tag 2>/dev/null || true)
+BUZZ_RELAY_URL=${QYVR_RELAY_URL:-https://qyvr.communities.buzz.xyz}
+export BUZZ_PRIVATE_KEY BUZZ_AUTH_TAG BUZZ_RELAY_URL
+exec "$here/libexec/buzz" "$@"

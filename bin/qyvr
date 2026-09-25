@@ -1,0 +1,15 @@
+#!/bin/sh
+# The qyvr CLI (asks, actions, grants) as Nick. Like bin/buzz, the key reaches only this process's environment.
+set -eu
+here=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+state=${OPENCLAW_STATE_DIR:-/var/lib/plow}
+if [ ! -r "$state/buzz/key" ]; then
+  echo 'not_ready: no homeroom key yet; the buzz channel creates it at startup' >&2
+  exit 3
+fi
+BUZZ_PRIVATE_KEY=$(cat "$state/buzz/key")
+QYVR_HOME=$state/qyvr
+QYVR_CONTROL_URL=${QYVR_CONTROL_URL:-https://buzz.qyvr.ai}
+BUZZ_RELAY_URL=${QYVR_RELAY_URL:-https://qyvr.communities.buzz.xyz}
+export BUZZ_PRIVATE_KEY QYVR_HOME QYVR_CONTROL_URL BUZZ_RELAY_URL
+exec node "$here/vendor/qyvr/qyvr.mjs" "$@"

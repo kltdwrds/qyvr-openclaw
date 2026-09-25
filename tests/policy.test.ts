@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { readFile } from "node:fs/promises";
 import entry from "../plugin/index.ts";
 
-for (const mode of ["full", "discovery", "tool-discovery"]) test(`${mode} exposes Plow tools without a tool-call gate`, async () => {
+for (const mode of ["full", "discovery", "tool-discovery"]) test(`${mode} exposes Plow and qyvr tools without a tool-call gate`, async () => {
   const names: string[] = [];
   const hooks: string[] = [];
   entry.register({
@@ -11,7 +11,7 @@ for (const mode of ["full", "discovery", "tool-discovery"]) test(`${mode} expose
     registerTool(factory: (context: object) => { name: string }) { names.push(factory({}).name); },
     on(name: string) { hooks.push(name); },
   });
-  assert.deepEqual(names, ["plow_start_thread"]);
+  assert.deepEqual(names, ["qyvr_enroll", "plow_start_thread"]);
   const manifest = JSON.parse(await readFile(new URL("../plugin/openclaw.plugin.json", import.meta.url), "utf8"));
   assert.deepEqual(manifest.contracts.tools, names);
   assert.ok(!hooks.includes("before_tool_call"));
