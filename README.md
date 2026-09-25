@@ -38,13 +38,14 @@ Compose reads `./plow-credentials` from this repository root:
 
 ```sh
 plow-agents mint LINE_UID
-docker compose up --build -d
-docker compose logs -f agent
+docker compose up --build
 ```
 
+Open <http://localhost:3001>.
+
 The gateway always serves the Control UI on loopback port 3000. No dashboard
-origin environment variable is needed. Bare Docker Compose has no dashboard
-proxy and does not publish port 3000, so its UI is unreachable.
+origin environment variable is needed. Compose publishes the local dashboard
+through a loopback-only proxy on port 3001; it does not publish port 3000.
 
 Plow reaches it through the private `https://<vm>.exe.xyz:3000` ingress, which
 delivers to `127.0.0.1` inside the VM. The proxy requires the exact browser
@@ -64,6 +65,10 @@ this password only on direct loopback requests without forwarded headers.
 The runtime user's login and interactive shells load it from a private state
 file, so `openclaw` commands work over SSH without entering a password. Anyone
 with a shell on the VM already has full control of the agent.
+
+This proxy is for local development only: anyone who can reach localhost:3001
+can act as an admin of this agent. It rejects browser requests with a foreign
+`Origin`; local clients can supply an allowed `Origin`.
 
 For a local Plow API, use the CLI's `--api-base` option and mint with
 `--agent-api-base` set to an address the container can reach, such as
