@@ -1,3 +1,24 @@
+# The buzz CLI, which the agent uses as a tool in the qyvr homeroom. Block publishes
+# no Linux build, so it is compiled here from a pinned commit. The stage runs on the
+# build machine's platform and cross-compiles to the target's, because building
+# Rust under emulation is very slow. Debian bookworm on both sides, so the binary's
+# glibc matches the runtime image.
+FROM --platform=$BUILDPLATFORM rust:1.95-bookworm@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1 AS buzz-cli
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ARG TARGETARCH
+ARG BUZZ_COMMIT=d01e5f82058463709a22e93bb4cd795da5f53e10
+RUN case "$TARGETARCH" in amd64) echo x86_64 > /tmp/arch ;; arm64) echo aarch64 > /tmp/arch ;; *) exit 1 ;; esac \
+ && arch=$(cat /tmp/arch) \
+ && apt-get update && apt-get install -y --no-install-recommends "gcc-${arch/_/-}-linux-gnu" libc6-dev-"$([ "$arch" = x86_64 ] && echo amd64 || echo arm64)"-cross \
+ && rustup target add "${arch}-unknown-linux-gnu"
+RUN git init -q /src && cd /src \
+ && git fetch -q --depth 1 https://github.com/block/buzz.git "$BUZZ_COMMIT" && git checkout -q FETCH_HEAD
+WORKDIR /src
+RUN arch=$(cat /tmp/arch) && triple="${arch}-unknown-linux-gnu" && gcc="${arch}-linux-gnu-gcc" \
+ && env "CARGO_TARGET_$(echo "$triple" | tr a-z- A-Z_)_LINKER=$gcc" "CC_$(echo "$triple" | tr - _)=$gcc" \
+      cargo build --release --locked -p buzz-cli --target "$triple" \
+ && cp "target/$triple/release/buzz" /buzz
+
 FROM ghcr.io/openclaw/openclaw:2026.9.4@sha256:cc596b846506a5f4cfcee111394a2725f375f01cca2ebb492a161fd1b747f101
 ARG PLOW_REVISION
 LABEL org.opencontainers.image.revision=$PLOW_REVISION co.plow.probe=/opt/plow/probe
