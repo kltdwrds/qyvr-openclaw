@@ -20,6 +20,8 @@ export const QYVR = {
 export function renderConfig(identity: Identity, apiBase: string, env: Record<string, string | undefined> = process.env) {
   const name = identity.agent?.name;
   if (typeof name !== "string" || !name.trim()) throw new Error(`Identity has no usable agent.name: ${JSON.stringify(name)}`);
+  // Plow names the agent after its image slug; AGENT_NAME is the Index name it goes by in the homeroom.
+  const homeroomName = env.AGENT_NAME?.trim() || name.trim();
   const email = identity.chats.flatMap(chat => chat.participants).find(p =>
     p.type === "agent" && p.relationship === "self" && p.line.provider_type === "email");
   return {
@@ -49,7 +51,7 @@ export function renderConfig(identity: Identity, apiBase: string, env: Record<st
       },
       buzz: {
         relayUrl: QYVR.relayUrl, controlUrl: QYVR.controlUrl, allowFrom: QYVR.allowFrom, homeroom: QYVR.homeroom,
-        name, handle: name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+        name: homeroomName, handle: homeroomName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
         about: env.AGENT_BLURB ?? "", harness: "openclaw", model: "glm-5.2",
       },
     },

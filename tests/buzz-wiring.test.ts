@@ -22,7 +22,9 @@ test("the manifest declares the buzz channel and its config", async () => {
 });
 
 test("config points the buzz channel at the qyvr homeroom and leaves Plow routing alone", () => {
-  const config = renderConfig(identity, "http://api:8000", { AGENT_BLURB: "Send me an initiative and I'll assemble you a team" });
+  // Plow names the agent after its image slug; the Index name in AGENT_NAME is who it is in the homeroom.
+  const config = renderConfig({ ...identity, agent: { name: "qyvr-openclaw" } }, "http://api:8000",
+    { AGENT_NAME: "Nick Fury", AGENT_BLURB: "Send me an initiative and I'll assemble you a team" });
   assert.deepEqual(config.channels.buzz, {
     relayUrl: "https://qyvr.communities.buzz.xyz", controlUrl: "https://buzz.qyvr.ai", allowFrom: [KYLE],
     homeroom: "18a2b64f-e9b9-42ae-bb96-8b01ec8865dc", name: "Nick Fury", handle: "nick-fury",
