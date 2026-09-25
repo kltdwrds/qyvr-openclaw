@@ -6,7 +6,7 @@ import { startGateway } from "./process.js";
 
 process.env.PLOW_AGENT_TOKEN = "probe-" + randomBytes(16).toString("hex");
 process.env.OPENCLAW_GATEWAY_TOKEN = randomBytes(32).toString("hex");
-const config = renderConfig(probeIdentity, "http://127.0.0.1:1");
+const config = renderConfig(probeIdentity, "http://127.0.0.1:1", process.env);
 await mkdir("/var/lib/plow/workspace", { recursive: true });
 const serialized = JSON.stringify(config, null, 2);
 if ([process.env.PLOW_AGENT_TOKEN, process.env.OPENCLAW_GATEWAY_TOKEN].some(token => serialized.includes(token))) {

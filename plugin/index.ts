@@ -157,7 +157,6 @@ const plugin: ChannelPlugin<Account> = {
 
 // Nick in the qyvr homeroom. Enrollment links and revocation notices go to the owner on the Plow line.
 const buzz = createBuzzChannel({
-  runtime: () => runtime,
   notifyOwner: async (cfg, text) => { await send(plugin.config.resolveAccount(cfg, "chat"), "plow-owner", text); },
 });
 
@@ -175,12 +174,12 @@ const entry = defineChannelPluginEntry({
       parameters: { type: "object", additionalProperties: false, properties: {} },
       async execute() {
         const account = context.config && buzz.config.resolveAccount(context.config, "default") as BuzzAccount;
-        if (!account?.controlUrl) return { isError: true, content: [{ type: "text", text: "The qyvr homeroom is not configured." }], details: {} };
+        if (!account?.provider) return { isError: true, content: [{ type: "text", text: "Buzz is not configured for this agent." }], details: {} };
         const state = process.env.OPENCLAW_STATE_DIR ?? "/var/lib/plow";
         const dir = `${state}/buzz`;
         const texts: string[] = [];
         const joined = await joinHomeroom({
-          dir, qyvrHome: `${state}/qyvr`, key: await loadOrCreateKey(dir), controlUrl: account.controlUrl, force: true,
+          dir, qyvrHome: `${state}/qyvr`, key: await loadOrCreateKey(dir), controlUrl: account.provider, force: true,
           enroll: { name: account.handle, harness: account.harness, model: account.model },
           notifyOwner: async text => { texts.push(text); },
         });

@@ -18,20 +18,28 @@ for (const mode of ["full", "discovery"]) test(`${mode} registers the buzz chann
 test("the manifest declares the buzz channel and its config", async () => {
   const manifest = JSON.parse(await readFile(new URL("../plugin/openclaw.plugin.json", import.meta.url), "utf8"));
   assert.deepEqual(manifest.channels, ["plow", "buzz"]);
-  assert.deepEqual(manifest.channelConfigs.buzz.schema.required, ["relayUrl", "controlUrl", "allowFrom", "homeroom", "name", "handle", "about", "harness", "model"]);
+  assert.deepEqual(manifest.channelConfigs.buzz.schema.required, ["provider", "respondTo", "name", "handle", "about", "harness", "model"]);
+  assert.deepEqual(manifest.channelConfigs.buzz.schema.properties.avatar, { type: "string" });
 });
 
-test("config points the buzz channel at the qyvr homeroom and leaves Plow routing alone", () => {
-  // Plow names the agent after its image slug; the Index name in AGENT_NAME is who it is in the homeroom.
-  const config = renderConfig({ ...identity, agent: { name: "qyvr-openclaw" } }, "http://api:8000",
-    { AGENT_NAME: "Nick Fury", AGENT_BLURB: "Send me an initiative and I'll assemble you a team" });
+const nick = { BUZZ_ATTESTATION_PROVIDER: "https://buzz.qyvr.ai", BUZZ_RESPOND_TO: `${KYLE}, `, AGENT_NAME: "Nick Fury",
+  AGENT_BLURB: "Send me an initiative and I'll assemble you a team", AGENT_AVATAR: "https://example.test/nick.png" };
+
+test("an image that names an attestation provider joins Buzz; Plow routing is unchanged", () => {
+  // Plow names the agent after its image slug; the Index name in AGENT_NAME is who it is in Buzz.
+  const config = renderConfig({ ...identity, agent: { name: "qyvr-openclaw" } }, "http://api:8000", nick);
   assert.deepEqual(config.channels.buzz, {
-    relayUrl: "https://qyvr.communities.buzz.xyz", controlUrl: "https://buzz.qyvr.ai", allowFrom: [KYLE],
-    homeroom: "18a2b64f-e9b9-42ae-bb96-8b01ec8865dc", name: "Nick Fury", handle: "nick-fury",
-    about: "Send me an initiative and I'll assemble you a team", harness: "openclaw", model: "glm-5.2",
+    provider: "https://buzz.qyvr.ai", respondTo: [KYLE], name: "Nick Fury", handle: "nick-fury",
+    about: "Send me an initiative and I'll assemble you a team", avatar: "https://example.test/nick.png", harness: "openclaw", model: "glm-5.2",
   });
   assert.deepEqual(config.bindings.map(b => b.match.channel), ["plow"]);
   assert.ok(config.tools.alsoAllow.includes("qyvr_enroll"));
+});
+
+test("without an attestation provider nothing about Buzz is configured", () => {
+  const config = renderConfig(identity, "http://api:8000", { AGENT_NAME: "Nick Fury" });
+  assert.ok(!("buzz" in config.channels));
+  assert.ok(!config.tools.alsoAllow.includes("qyvr_enroll"));
 });
 
 test("qyvr_enroll hands the model a fresh approval link", async t => {
@@ -44,7 +52,7 @@ test("qyvr_enroll hands the model a fresh approval link", async t => {
   t.mock.method(globalThis, "fetch", async (url: string) => url.endsWith("/v1/attest")
     ? Response.json({ error: "unknown_agent", message: "enroll first" }, { status: 403 })
     : Response.json({ url: "https://buzz.qyvr.ai/enroll/abc", expires_at: 1 }));
-  const tool = factory!({ config: renderConfig(identity, "http://api:8000", {}) });
+  const tool = factory!({ config: renderConfig(identity, "http://api:8000", nick) });
   const r = await tool.execute("call", {});
   assert.match(r.content[0]!.text, /Approve me into the qyvr homeroom: https:\/\/buzz\.qyvr\.ai\/enroll\/abc/);
 });

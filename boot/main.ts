@@ -13,7 +13,7 @@ try {
   process.env.OPENCLAW_GATEWAY_TOKEN = randomBytes(32).toString("hex");
   process.env.PLOW_MCP_BRIDGE_TOKEN = randomBytes(32).toString("hex");
   const identity = await identityFromApi(base, process.env.PLOW_AGENT_TOKEN);
-  const config = renderConfig(identity, base);
+  const config = renderConfig(identity, base, process.env);
   await mkdir("/var/lib/plow/workspace", { recursive: true });
   for (const name of ["BOOTSTRAP.md", "SOUL.md", "IDENTITY.md", "USER.md"]) {
     await rm(`/var/lib/plow/workspace/${name}`, { force: true });

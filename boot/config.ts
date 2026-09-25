@@ -8,20 +8,28 @@ export type Identity = {
   mcp_url?: string | null;
 };
 
-/** Nick's place in the qyvr homeroom: the Block-hosted Buzz community and its control plane. */
-export const QYVR = {
-  relayUrl: "https://qyvr.communities.buzz.xyz",
-  controlUrl: "https://buzz.qyvr.ai",
-  homeroom: "18a2b64f-e9b9-42ae-bb96-8b01ec8865dc",
-  // Kyle's Buzz identity (npub1c2ug7a9j…): the only author whose mentions start a turn in v0.
-  allowFrom: ["c2b88f74b2f2fed397726b430eb8020e514cfc6c7234bec9fa6d93f4f2769808"],
-};
+/**
+ * Buzz is opt-in per image: a variant that sets BUZZ_ATTESTATION_PROVIDER joins that provider's Buzz community
+ * (see plugin/buzz.ts). Without it nothing about Buzz is configured.
+ */
+function buzzChannel(env: Record<string, string | undefined>, agentName: string) {
+  const provider = env.BUZZ_ATTESTATION_PROVIDER?.trim();
+  if (!provider) return null;
+  // Plow names the agent after its image slug; AGENT_NAME is the Index name it goes by in Buzz.
+  const name = env.AGENT_NAME?.trim() || agentName.trim();
+  const avatar = env.AGENT_AVATAR?.trim();
+  return {
+    provider,
+    respondTo: (env.BUZZ_RESPOND_TO ?? "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean),
+    name, handle: name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+    about: env.AGENT_BLURB ?? "", ...(avatar ? { avatar } : {}), harness: "openclaw", model: "glm-5.2",
+  };
+}
 
-export function renderConfig(identity: Identity, apiBase: string, env: Record<string, string | undefined> = process.env) {
+export function renderConfig(identity: Identity, apiBase: string, env: Record<string, string | undefined> = {}) {
   const name = identity.agent?.name;
   if (typeof name !== "string" || !name.trim()) throw new Error(`Identity has no usable agent.name: ${JSON.stringify(name)}`);
-  // Plow names the agent after its image slug; AGENT_NAME is the Index name it goes by in the homeroom.
-  const homeroomName = env.AGENT_NAME?.trim() || name.trim();
+  const buzz = buzzChannel(env, name);
   const email = identity.chats.flatMap(chat => chat.participants).find(p =>
     p.type === "agent" && p.relationship === "self" && p.line.provider_type === "email");
   return {
@@ -49,11 +57,7 @@ export function renderConfig(identity: Identity, apiBase: string, env: Record<st
         apiBase, lineUid: identity.line.uid,
         ...(email?.type === "agent" ? { emailLineUid: email.line.uid } : {}),
       },
-      buzz: {
-        relayUrl: QYVR.relayUrl, controlUrl: QYVR.controlUrl, allowFrom: QYVR.allowFrom, homeroom: QYVR.homeroom,
-        name: homeroomName, handle: homeroomName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
-        about: env.AGENT_BLURB ?? "", harness: "openclaw", model: "glm-5.2",
-      },
+      ...(buzz ? { buzz } : {}),
     },
     session: { dmScope: "per-account-channel-peer", groupScope: "per-group" },
     bindings: [{ agentId: "main", match: { channel: "plow", accountId: "chat", peer: { kind: "direct", id: "plow-owner" } }, session: { dmScope: "main" } }],
@@ -62,6 +66,6 @@ export function renderConfig(identity: Identity, apiBase: string, env: Record<st
     // An empty allowlist means unrestricted in OpenClaw.
     skills: { load: { extraDirs: ["/opt/plow/skills"] }, allowBundled: ["plow-no-bundled-skills"] },
     // Keep workspace and durable memory writes local instead of routing them through the Mac relay.
-    tools: { profile: "messaging", sessions: { visibility: "tree" }, alsoAllow: ["read", "write", "edit", "exec", "plow_start_thread", "qyvr_enroll"], deny: ["ask_user"] },
+    tools: { profile: "messaging", sessions: { visibility: "tree" }, alsoAllow: ["read", "write", "edit", "exec", "plow_start_thread", ...(buzz ? ["qyvr_enroll"] : [])], deny: ["ask_user"] },
   };
 }

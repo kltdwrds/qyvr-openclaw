@@ -9,7 +9,7 @@ if [ ! -r "$state/buzz/key" ]; then
 fi
 BUZZ_PRIVATE_KEY=$(cat "$state/buzz/key")
 QYVR_HOME=$state/qyvr
-QYVR_CONTROL_URL=${QYVR_CONTROL_URL:-https://buzz.qyvr.ai}
-BUZZ_RELAY_URL=${QYVR_RELAY_URL:-https://qyvr.communities.buzz.xyz}
+QYVR_CONTROL_URL=${BUZZ_ATTESTATION_PROVIDER:-}
+BUZZ_RELAY_URL=$(cat "$state/buzz/relay-url" 2>/dev/null || true)
 export BUZZ_PRIVATE_KEY QYVR_HOME QYVR_CONTROL_URL BUZZ_RELAY_URL
 exec node "$here/vendor/qyvr/qyvr.mjs" "$@"

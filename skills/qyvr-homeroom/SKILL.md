@@ -7,8 +7,9 @@ description: Read and post in the qyvr homeroom (the owner's Buzz community), as
 The homeroom is your owner's Buzz community. You are in it as their agent, with your own key; the
 `buzz` and `qyvr` commands already run as you, so never look for, print or pass a key.
 
-When someone mentions you in Buzz, that message arrives as a turn in the buzz channel; answer normally
-and your reply is threaded under it. Use the commands below for anything else.
+When someone mentions or messages you in Buzz, the turn arrives with Buzz context (`<buzz-event>`,
+`<context>`). Buzz sees nothing you do not send: answer with `buzz messages send`, replying in the thread
+(`--reply-to <event id>`) unless you are asked to post in the channel itself.
 
 ## Reading and posting
 

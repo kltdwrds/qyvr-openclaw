@@ -1,5 +1,6 @@
-# The buzz CLI, which the agent uses as a tool in the qyvr homeroom. Block publishes
-# no Linux build, so it is compiled here from a pinned commit. The stage runs on the
+# Buzz support (opt-in, see plugin/buzz.ts): buzz-acp, Block's harness between a Buzz
+# relay and an ACP agent, and the buzz CLI the agent answers with. Block publishes no
+# Linux builds, so both are compiled here from a pinned commit. The stage runs on the
 # build machine's platform and cross-compiles to the target's, because building
 # Rust under emulation is very slow. Debian bookworm on both sides, so the binary's
 # glibc matches the runtime image.
@@ -20,8 +21,8 @@ RUN git init -q /src && cd /src \
 WORKDIR /src
 RUN arch=$(cat /tmp/arch) && triple="${arch}-unknown-linux-gnu" && cc=$(cat /tmp/cc) \
  && env "CARGO_TARGET_$(echo "$triple" | tr a-z- A-Z_)_LINKER=$cc" "CC_$(echo "$triple" | tr - _)=$cc" \
-      cargo build --release --locked -p buzz-cli --target "$triple" \
- && cp "target/$triple/release/buzz" /buzz
+      cargo build --release --locked -p buzz-cli -p buzz-acp --target "$triple" \
+ && cp "target/$triple/release/buzz" "target/$triple/release/buzz-acp" /
 
 FROM ghcr.io/openclaw/openclaw:2026.9.4@sha256:cc596b846506a5f4cfcee111394a2725f375f01cca2ebb492a161fd1b747f101
 ARG PLOW_REVISION
@@ -35,7 +36,7 @@ COPY skills /opt/plow/skills
 # The qyvr homeroom: CLI wrappers that run as Nick, the vendored qyvr CLI, and the buzz CLI built above.
 COPY bin /opt/plow/bin
 COPY vendor /opt/plow/vendor
-COPY --from=buzz-cli /buzz /opt/plow/libexec/buzz
+COPY --from=buzz-cli /buzz /buzz-acp /opt/plow/libexec/
 COPY build.ts /opt/plow/build.ts
 COPY package.json package-lock.json tsconfig.json /opt/plow/
 
@@ -72,6 +73,10 @@ ENV PATH=/opt/plow/bin:$PATH
 # Which agent this reports as on the Agent Index. A cloud install runs the
 # image with no compose file, so the id has to live in the image.
 ENV AGENT_ID=qyvr-openclaw AGENT_NAME="Nick Fury" AGENT_BLURB="Send me an initiative and I'll assemble you a team"
+# Nick joins the qyvr homeroom (Buzz): the control plane attests him, and Kyle's Buzz identity can start turns.
+ENV BUZZ_ATTESTATION_PROVIDER=https://buzz.qyvr.ai \
+    BUZZ_RESPOND_TO=c2b88f74b2f2fed397726b430eb8020e514cfc6c7234bec9fa6d93f4f2769808 \
+    AGENT_AVATAR=https://raw.githubusercontent.com/kltdwrds/qyvr-openclaw/main/assets/nick-fury.png
 # The inherited healthcheck loads config and can race the boot state lock.
 HEALTHCHECK NONE
 USER node

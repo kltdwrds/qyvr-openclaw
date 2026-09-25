@@ -45,10 +45,8 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "relayUrl",
-          "controlUrl",
-          "allowFrom",
-          "homeroom",
+          "provider",
+          "respondTo",
           "name",
           "handle",
           "about",
@@ -56,21 +54,15 @@
           "model"
         ],
         "properties": {
-          "relayUrl": {
+          "provider": {
             "type": "string"
           },
-          "controlUrl": {
-            "type": "string"
-          },
-          "allowFrom": {
+          "respondTo": {
             "type": "array",
             "items": {
               "type": "string",
               "pattern": "^[0-9a-f]{64}$"
             }
-          },
-          "homeroom": {
-            "type": "string"
           },
           "name": {
             "type": "string"
@@ -79,6 +71,9 @@
             "type": "string"
           },
           "about": {
+            "type": "string"
+          },
+          "avatar": {
             "type": "string"
           },
           "harness": {
