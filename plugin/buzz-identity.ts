@@ -9,6 +9,8 @@ export type AuthTag = [string, string, string, string];
 export type State = {
   /** When the last enrollment link was texted to the owner (unix seconds). */
   enrollSentAt?: number;
+  /** An enrollment link not yet texted to the owner, kept so a failed text is retried without enrolling again. */
+  enrollLink?: { url: string; expiresAt: number };
   revokedNotified?: boolean;
   /** Newest mention handled: its created_at and the ids handled at that second. */
   cursor?: { since: number; ids: string[] };
@@ -90,7 +92,8 @@ export type JoinOptions = {
 
 /**
  * Attests when the control plane knows this key; otherwise enrolls and texts the owner the approval link,
- * at most once per ENROLL_RESEND_SECONDS unless `force`. A revoked key tells the owner once.
+ * at most once per ENROLL_RESEND_SECONDS unless `force`. If the text fails (the owner has no chat yet), the
+ * unexpired link is kept and only the text is retried. A revoked key tells the owner once.
  */
 export async function joinHomeroom(o: JoinOptions): Promise<Joined> {
   const fetch = o.fetch ?? globalThis.fetch;
@@ -113,11 +116,16 @@ export async function joinHomeroom(o: JoinOptions): Promise<Joined> {
       return { status: "revoked" };
     }
     if (error.code !== "unknown_agent") throw error;
+    let link = state.enrollLink && now < state.enrollLink.expiresAt ? state.enrollLink : undefined;
     const since = state.enrollSentAt === undefined ? Infinity : now - state.enrollSentAt;
-    if (since >= ENROLL_RESEND_SECONDS || (o.force && since >= ENROLL_LINK_SECONDS)) {
-      const r = await call<{ url: string }>(fetch, o.controlUrl, o.key, "/v1/enroll", o.enroll);
-      await o.notifyOwner(`Approve me into the qyvr homeroom: ${r.url}`);
-      await updateState(o.dir, { enrollSentAt: now });
+    if (!link && (since >= ENROLL_RESEND_SECONDS || (o.force && since >= ENROLL_LINK_SECONDS))) {
+      const r = await call<{ url: string; expires_at: number }>(fetch, o.controlUrl, o.key, "/v1/enroll", o.enroll);
+      link = { url: r.url, expiresAt: r.expires_at };
+      await updateState(o.dir, { enrollLink: link });
+    }
+    if (link) {
+      await o.notifyOwner(`Approve me into the qyvr homeroom: ${link.url}`);
+      await updateState(o.dir, { enrollSentAt: now, enrollLink: undefined });
     }
     return { status: "enrolling" };
   }

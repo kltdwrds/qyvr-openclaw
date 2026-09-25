@@ -35,7 +35,8 @@ function controlPlane(answers: Record<string, () => Response>) {
 const refuse = (error: string) => () => Response.json({ error, message: error }, { status: 403 });
 const tag = ["auth", "a".repeat(64), "created_at<2000000000", "b".repeat(128)];
 
-async function setup(t: Parameters<typeof dirs>[0], answers: Record<string, () => Response>) {
+/** `failTexts` is how many texts fail first, as when the owner has no chat yet. */
+async function setup(t: Parameters<typeof dirs>[0], answers: Record<string, () => Response>, failTexts = 0) {
   const d = await dirs(t);
   const key = await loadOrCreateKey(d.dir);
   const cp = controlPlane(answers);
@@ -44,7 +45,10 @@ async function setup(t: Parameters<typeof dirs>[0], answers: Record<string, () =
   const join = (force = false) => joinHomeroom({
     ...d, key, controlUrl: "https://control.test", fetch: cp.fetch, now: () => now, force,
     enroll: { name: "nick-fury", harness: "openclaw", model: "glm-5.2" },
-    notifyOwner: async text => { texts.push(text); },
+    notifyOwner: async text => {
+      if (failTexts > 0) { failTexts--; throw new Error("no chat with the owner yet"); }
+      texts.push(text);
+    },
   });
   return { ...d, key, cp, texts, join, advance: (s: number) => { now += s; } };
 }
@@ -89,6 +93,37 @@ test("a new link goes out after a day, or after the old one expired when the own
   s.advance(86_400);
   await s.join();
   assert.equal(s.texts.length, 3);
+});
+
+test("when the text fails, only the text is retried while the link is unexpired", async t => {
+  const s = await setup(t, {
+    "/v1/attest": refuse("unknown_agent"),
+    "/v1/enroll": () => Response.json({ url: "https://buzz.qyvr.ai/enroll/abc", expires_at: 1_000_000 + 900 }),
+  }, 2);
+  await assert.rejects(s.join(), /no chat/);
+  s.advance(60);
+  await assert.rejects(s.join(), /no chat/);
+  s.advance(60);
+  assert.deepEqual(await s.join(), { status: "enrolling" });
+  assert.equal(s.cp.calls.filter(c => c.path === "/v1/enroll").length, 1);
+  assert.deepEqual(s.texts, ["Approve me into the qyvr homeroom: https://buzz.qyvr.ai/enroll/abc"]);
+  assert.equal((await readState(s.dir)).enrollSentAt, 1_000_120);
+  s.advance(60);
+  await s.join();
+  assert.equal(s.texts.length, 1, "a delivered link is not sent again");
+});
+
+test("a link that expired before it could be texted is replaced by a new enrollment", async t => {
+  let n = 0;
+  const s = await setup(t, {
+    "/v1/attest": refuse("unknown_agent"),
+    "/v1/enroll": () => { n++; return Response.json({ url: `https://buzz.qyvr.ai/enroll/${n}`, expires_at: 1_000_000 + n * 900 }); },
+  }, 1);
+  await assert.rejects(s.join(), /no chat/);
+  s.advance(900);
+  await s.join();
+  assert.equal(s.cp.calls.filter(c => c.path === "/v1/enroll").length, 2);
+  assert.deepEqual(s.texts, ["Approve me into the qyvr homeroom: https://buzz.qyvr.ai/enroll/2"]);
 });
 
 test("a revoked agent says so once and stops", async t => {
