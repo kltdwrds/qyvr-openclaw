@@ -1,7 +1,7 @@
 // Nick's place in the qyvr homeroom: its own Nostr key (created once, kept in the state volume), enrollment
 // with the qyvr control plane, and the daily NIP-OA attestation that admits it to the relay. The key never
 // goes into env, argv or logs.
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { generateKeypair, pubkeyOf, signNip98 } from "./buzz-kit.mjs";
 
 export type Key = { sk: string; pk: string };
@@ -41,10 +41,21 @@ export async function readState(dir: string): Promise<State> {
   }
 }
 
-export async function updateState(dir: string, change: Partial<State>): Promise<State> {
-  const next = { ...(await readState(dir)), ...change };
-  await writeFile(`${dir}/state.json`, JSON.stringify(next), { mode: 0o600 });
-  return next;
+let stateQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Merges `change` into state.json. Updates run one at a time (the poll loop and the qyvr_enroll tool both
+ * write), and each replaces the file by rename, so a crash never leaves it half written.
+ */
+export function updateState(dir: string, change: Partial<State>): Promise<State> {
+  const run = stateQueue.then(async () => {
+    const next = { ...(await readState(dir)), ...change };
+    await writeFile(`${dir}/state.json.tmp`, JSON.stringify(next), { mode: 0o600 });
+    await rename(`${dir}/state.json.tmp`, `${dir}/state.json`);
+    return next;
+  });
+  stateQueue = run.catch(() => {});
+  return run;
 }
 
 class ControlError extends Error {

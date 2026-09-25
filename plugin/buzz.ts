@@ -3,7 +3,7 @@
 // threaded kind 9 in the same channel. Everything else a relay carries is data; only the allowlist decides
 // who can start a turn.
 import type { ChannelPlugin, OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk/channel-core";
-import { RelayHttp, ensureProfile, npubOf, type AuthTag, type NostrEvent } from "./buzz-kit.mjs";
+import { RelayHttp, ensureProfile, npubOf, verifySignedEvent, type AuthTag, type NostrEvent } from "./buzz-kit.mjs";
 import { joinHomeroom, loadOrCreateKey, readState, updateState, type Key } from "./buzz-identity.ts";
 
 export type BuzzAccount = {
@@ -32,6 +32,8 @@ type Deps = {
 const REATTEST_SECONDS = 20 * 60 * 60;
 const ENROLLING_RECHECK_SECONDS = 30;
 const HISTORY = 20;
+/** Mentions dated further ahead than this are ignored, so no one can push the cursor into the future. */
+const FUTURE_SKEW_SECONDS = 60;
 
 const tagValue = (e: NostrEvent, name: string, marker?: string) =>
   e.tags.find(t => t[0] === name && (marker === undefined || t[3] === marker))?.[1];
@@ -79,7 +81,8 @@ export function createBuzzChannel(deps: Deps): ChannelPlugin<BuzzAccount> {
     const channelId = tagValue(e, "h")!;
     const earlier = (await relay.query([{ kinds: [9], "#h": [channelId], until: e.created_at, limit: HISTORY + 1 }]))
       .filter(m => m.id !== e.id).sort((a, b) => a.created_at - b.created_at).slice(-HISTORY);
-    const named = await names(relay, [...new Set([e.pubkey, ...earlier.map(m => m.pubkey)])].filter(pk => pk !== key.pk));
+    // Only allowlisted authors are shown by their chosen name; anyone else could call themselves the owner.
+    const named = await names(relay, [...new Set([e.pubkey, ...earlier.map(m => m.pubkey)])].filter(pk => account.allowFrom.includes(pk)));
     const nameOf = (pk: string) => pk === key.pk ? "You (assistant)" : named.get(pk) ?? shortNpub(pk);
     const peer = { kind: "group", id: channelId } as const;
     const route = runtime.channel.routing.resolveAgentRoute({ cfg, channel: "buzz", accountId: account.accountId, peer });
@@ -186,12 +189,14 @@ export function createBuzzChannel(deps: Deps): ChannelPlugin<BuzzAccount> {
     }
     const found = await relay.query([{ kinds: [9], "#p": [key.pk], since: cursor.since, limit: 50 }]);
     const fresh = found
-      .filter(e => e.pubkey !== key.pk && e.created_at >= cursor!.since && !cursor!.ids.includes(e.id) && tagValue(e, "h"))
+      .filter(e => e.pubkey !== key.pk && e.created_at >= cursor!.since && e.created_at <= now() + FUTURE_SKEW_SECONDS
+        && !cursor!.ids.includes(e.id) && tagValue(e, "h"))
       .sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id));
     for (const e of fresh) {
       cursor = e.created_at === cursor.since ? { since: cursor.since, ids: [...cursor.ids, e.id] } : { since: e.created_at, ids: [e.id] };
       // Recorded before the turn runs, so a mention whose turn fails is never replayed in a loop.
       await updateState(dir, { cursor });
+      if (!verifySignedEvent(e)) { log(`buzz dropped event=${e.id}: bad signature`); continue; }
       if (!account.allowFrom.includes(e.pubkey)) { log(`buzz dropped event=${e.id} author=${e.pubkey} (not on the allowlist)`); continue; }
       await turn(account, cfg, relay, key, e, log);
     }

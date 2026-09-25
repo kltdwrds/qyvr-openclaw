@@ -5,17 +5,21 @@
 # glibc matches the runtime image.
 FROM --platform=$BUILDPLATFORM rust:1.95-bookworm@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1 AS buzz-cli
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ARG BUILDARCH
 ARG TARGETARCH
 ARG BUZZ_COMMIT=d01e5f82058463709a22e93bb4cd795da5f53e10
+# A native build uses the image's own gcc; a cross build installs the target's gcc and libc.
 RUN case "$TARGETARCH" in amd64) echo x86_64 > /tmp/arch ;; arm64) echo aarch64 > /tmp/arch ;; *) exit 1 ;; esac \
  && arch=$(cat /tmp/arch) \
- && apt-get update && apt-get install -y --no-install-recommends "gcc-${arch/_/-}-linux-gnu" libc6-dev-"$([ "$arch" = x86_64 ] && echo amd64 || echo arm64)"-cross \
+ && if [ "$BUILDARCH" = "$TARGETARCH" ]; then echo gcc > /tmp/cc; else \
+      apt-get update && apt-get install -y --no-install-recommends "gcc-${arch/_/-}-linux-gnu" "libc6-dev-${TARGETARCH}-cross" \
+      && echo "${arch}-linux-gnu-gcc" > /tmp/cc; fi \
  && rustup target add "${arch}-unknown-linux-gnu"
 RUN git init -q /src && cd /src \
  && git fetch -q --depth 1 https://github.com/block/buzz.git "$BUZZ_COMMIT" && git checkout -q FETCH_HEAD
 WORKDIR /src
-RUN arch=$(cat /tmp/arch) && triple="${arch}-unknown-linux-gnu" && gcc="${arch}-linux-gnu-gcc" \
- && env "CARGO_TARGET_$(echo "$triple" | tr a-z- A-Z_)_LINKER=$gcc" "CC_$(echo "$triple" | tr - _)=$gcc" \
+RUN arch=$(cat /tmp/arch) && triple="${arch}-unknown-linux-gnu" && cc=$(cat /tmp/cc) \
+ && env "CARGO_TARGET_$(echo "$triple" | tr a-z- A-Z_)_LINKER=$cc" "CC_$(echo "$triple" | tr - _)=$cc" \
       cargo build --release --locked -p buzz-cli --target "$triple" \
  && cp "target/$triple/release/buzz" /buzz
 

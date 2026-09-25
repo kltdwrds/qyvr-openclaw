@@ -103,3 +103,13 @@ test("any other refusal is an error, not a state change", async t => {
   await assert.rejects(s.join(), /502/);
   assert.deepEqual(s.texts, []);
 });
+
+test("state updates are atomic and serialized, so concurrent writers lose nothing", async t => {
+  const { dir } = await dirs(t);
+  await loadOrCreateKey(dir);
+  const { updateState } = await import("../plugin/buzz-identity.ts");
+  await Promise.all([updateState(dir, { enrollSentAt: 5 }), updateState(dir, { cursor: { since: 7, ids: ["a"] } }), updateState(dir, { revokedNotified: true })]);
+  assert.deepEqual(await readState(dir), { enrollSentAt: 5, cursor: { since: 7, ids: ["a"] }, revokedNotified: true });
+  const { readdir } = await import("node:fs/promises");
+  assert.deepEqual((await readdir(dir)).sort(), ["key", "state.json"], "no temp files left behind");
+});
