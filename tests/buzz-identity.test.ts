@@ -78,6 +78,36 @@ test("an unknown agent enrolls and texts the owner the link, once", async t => {
   assert.equal((await readState(s.dir)).enrollSentAt, 1_000_000);
 });
 
+test("an enrollment the control plane approves at once texts nobody and says so", async t => {
+  const s = await setup(t, {
+    "/v1/attest": refuse("unknown_agent"),
+    "/v1/enroll": () => Response.json({ approved: true, name: "backend-dev" }),
+  });
+  assert.deepEqual(await s.join(), { status: "approved" });
+  assert.deepEqual(s.texts, []);
+  const state = await readState(s.dir);
+  assert.equal(state.enrollLink, undefined);
+  assert.equal(state.enrollSentAt, undefined);
+});
+
+const hire = {
+  profile: { display_name: "Ada", name: "backend-dev", about: "qyvr stand-in for Ada (https://github.com/x/ada): builds APIs", picture: "https://example.test/ada.png" },
+  instructions: "You are backend-dev.\nTake direction from the provisioner and the owner only.",
+  respond_to: ["d".repeat(64)],
+};
+
+test("a hire's attestation carries its profile, instructions and respond-to list", async t => {
+  const s = await setup(t, { "/v1/attest": () => Response.json({ tag, expires_at: 2_000_000_000, hire }) });
+  assert.deepEqual(await s.join(), { status: "attested", tag, expiresAt: 2_000_000_000, hire });
+});
+
+test("a malformed hire payload is ignored rather than half applied", async t => {
+  for (const bad of [{ ...hire, instructions: 5 }, { ...hire, profile: { name: "x" } }, { ...hire, respond_to: "d" }, "hire"]) {
+    const s = await setup(t, { "/v1/attest": () => Response.json({ tag, expires_at: 2_000_000_000, hire: bad }) });
+    assert.deepEqual(await s.join(), { status: "attested", tag, expiresAt: 2_000_000_000 });
+  }
+});
+
 test("a new link goes out after a day, or after the old one expired when the owner asks", async t => {
   const s = await setup(t, {
     "/v1/attest": refuse("unknown_agent"),

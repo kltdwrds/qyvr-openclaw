@@ -37,6 +37,13 @@ test("no AGENT_ID reports for nobody, so nothing runs", async t => {
   assert.deepEqual(calls, []);
 });
 
+test("an empty AGENT_ID (the hire image) reports for nobody either", async t => {
+  env(t, { AGENT_ID: "" });
+  const calls = fakeClient(t, []);
+  assert.equal(startAgentIndex(), undefined);
+  assert.deepEqual(calls, []);
+});
+
 test("an unregistered install registers, then reports", async t => {
   env(t, { AGENT_ID: "my-agent", AGENT_NAME: "My Agent", AGENT_BLURB: "What it does", PLOW_API_BASE: "https://api.example", PLOW_AGENT_TOKEN: "token", OPENCLAW_STATE_DIR: "/custom/openclaw" });
   const calls = fakeClient(t, [0, 3, 0, 0]);

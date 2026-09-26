@@ -184,6 +184,7 @@ const entry = defineChannelPluginEntry({
           notifyOwner: async text => { texts.push(text); },
         });
         const text = joined.status === "attested" ? "You are already in the qyvr homeroom."
+          : joined.status === "approved" ? "The control plane approved you; you will be in the qyvr homeroom within a minute."
           : joined.status === "revoked" ? "You were revoked from the qyvr homeroom; only the owner can undo that."
           : texts[0] ?? "An approval link was sent less than 15 minutes ago; it is still valid.";
         return { content: [{ type: "text", text }], details: { status: joined.status } };

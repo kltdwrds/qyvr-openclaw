@@ -110,3 +110,15 @@ test("the base image uses boot-owned config without the OpenClaw browser UI", ()
   assert.equal(config.agents.defaults.skipBootstrap, true);
   assert.deepEqual(config.meta, {});
 });
+
+test("a hire image (empty AGENT_NAME) takes its Buzz name and handle from the Plow identity name", () => {
+  const config = renderConfig({ ...identity, agent: { name: "qyvr-hire-0123456789ab" } }, "http://api:8000", {
+    BUZZ_ATTESTATION_PROVIDER: "https://buzz.qyvr.ai", AGENT_ID: "", AGENT_NAME: "", AGENT_BLURB: "", AGENT_AVATAR: "",
+    BUZZ_RESPOND_TO: "c2b88f74b2f2fed397726b430eb8020e514cfc6c7234bec9fa6d93f4f2769808",
+  });
+  const buzz = config.channels.buzz!;
+  assert.equal(buzz.name, "qyvr-hire-0123456789ab");
+  assert.equal(buzz.handle, "qyvr-hire-0123456789ab", "the handle is what the hire enrolls with");
+  assert.equal(buzz.about, "");
+  assert.ok(!("avatar" in buzz));
+});

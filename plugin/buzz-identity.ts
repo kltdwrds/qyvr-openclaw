@@ -15,11 +15,37 @@ export type State = {
   /** Newest mention handled: its created_at and the ids handled at that second. */
   cursor?: { since: number; ids: string[] };
 };
-export type Joined = { status: "attested"; tag: AuthTag; expiresAt: number } | { status: "enrolling" } | { status: "revoked" };
+/** What the control plane tells an agent it provisioned as a hire: who to be, how to work, whom to answer. */
+export type Hire = {
+  profile: { display_name: string; name: string; about: string; picture?: string };
+  instructions: string;
+  respond_to: string[];
+};
+/** `approved`: the control plane approved the enrollment at once (a hire), so attest again now. */
+export type Joined =
+  | { status: "attested"; tag: AuthTag; expiresAt: number; hire?: Hire }
+  | { status: "approved" } | { status: "enrolling" } | { status: "revoked" };
 
 /** An enrollment link lasts 15 minutes on the control plane; an unanswered one is resent after a day. */
 export const ENROLL_LINK_SECONDS = 15 * 60;
 export const ENROLL_RESEND_SECONDS = 24 * 60 * 60;
+
+const isText = (v: unknown): v is string => typeof v === "string";
+
+/** The attest answer's `hire`, or undefined when absent or not the expected shape. */
+export function parseHire(raw: unknown): Hire | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const h = raw as Record<string, unknown>;
+  const p = h.profile as Record<string, unknown> | undefined;
+  if (!p || typeof p !== "object" || !isText(p.display_name) || !isText(p.name) || !isText(p.about)) return undefined;
+  if (p.picture !== undefined && !isText(p.picture)) return undefined;
+  if (!isText(h.instructions) || !Array.isArray(h.respond_to) || !h.respond_to.every(isText)) return undefined;
+  return {
+    profile: { display_name: p.display_name, name: p.name, about: p.about, ...(p.picture ? { picture: p.picture } : {}) },
+    instructions: h.instructions,
+    respond_to: (h.respond_to as string[]).map(pk => pk.toLowerCase()).filter(pk => /^[0-9a-f]{64}$/.test(pk)),
+  };
+}
 
 export async function loadOrCreateKey(dir: string): Promise<Key> {
   await mkdir(dir, { recursive: true, mode: 0o700 });
@@ -93,18 +119,20 @@ export type JoinOptions = {
 /**
  * Attests when the control plane knows this key; otherwise enrolls and texts the owner the approval link,
  * at most once per ENROLL_RESEND_SECONDS unless `force`. If the text fails (the owner has no chat yet), the
- * unexpired link is kept and only the text is retried. A revoked key tells the owner once.
+ * unexpired link is kept and only the text is retried. A revoked key tells the owner once. An enrollment the
+ * control plane approves at once (a hire) texts nobody and answers `approved`, so the caller attests again.
  */
 export async function joinHomeroom(o: JoinOptions): Promise<Joined> {
   const fetch = o.fetch ?? globalThis.fetch;
   const now = o.now?.() ?? Math.floor(Date.now() / 1000);
   try {
-    const r = await call<{ tag: AuthTag; expires_at: number }>(fetch, o.controlUrl, o.key, "/v1/attest", {});
+    const r = await call<{ tag: AuthTag; expires_at: number; hire?: unknown }>(fetch, o.controlUrl, o.key, "/v1/attest", {});
     const dir = `${o.qyvrHome}/${o.key.pk}`;
     await mkdir(dir, { recursive: true, mode: 0o700 });
     await writeFile(`${dir}/auth-tag`, JSON.stringify(r.tag), { mode: 0o600 });
     await chmod(`${dir}/auth-tag`, 0o600);
-    return { status: "attested", tag: r.tag, expiresAt: r.expires_at };
+    const hire = parseHire(r.hire);
+    return { status: "attested", tag: r.tag, expiresAt: r.expires_at, ...(hire ? { hire } : {}) };
   } catch (error) {
     if (!(error instanceof ControlError)) throw error;
     const state = await readState(o.dir);
@@ -119,7 +147,9 @@ export async function joinHomeroom(o: JoinOptions): Promise<Joined> {
     let link = state.enrollLink && now < state.enrollLink.expiresAt ? state.enrollLink : undefined;
     const since = state.enrollSentAt === undefined ? Infinity : now - state.enrollSentAt;
     if (!link && (since >= ENROLL_RESEND_SECONDS || (o.force && since >= ENROLL_LINK_SECONDS))) {
-      const r = await call<{ url: string; expires_at: number }>(fetch, o.controlUrl, o.key, "/v1/enroll", o.enroll);
+      const r = await call<{ url: string; expires_at: number; approved?: boolean }>(fetch, o.controlUrl, o.key, "/v1/enroll", o.enroll);
+      // A hire's enrollment is approved by the grant that provisioned it: nothing for the owner to tap.
+      if (r.approved === true) return { status: "approved" };
       link = { url: r.url, expiresAt: r.expires_at };
       await updateState(o.dir, { enrollLink: link });
     }
