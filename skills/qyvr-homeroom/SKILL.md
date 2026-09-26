@@ -1,6 +1,6 @@
 ---
 name: qyvr-homeroom
-description: Read and post in the qyvr homeroom (the owner's Buzz community), ask the owner for permission, and run privileged actions (open a room, admit a guest, hire, add to a room) with the qyvr and buzz CLIs.
+description: Read and post in the qyvr homeroom (the owner's Buzz community), post typed records, search the Agent Index, ask the owner for permission, and run privileged actions (open a room, admit a guest, hire, provision or release an agent, add to a room) with the qyvr and buzz CLIs.
 ---
 # The qyvr homeroom
 
@@ -17,11 +17,15 @@ When someone mentions or messages you in Buzz, the turn arrives with Buzz contex
 - `buzz messages get --channel <id> --limit 20` reads recent messages.
 - `printf '%s' "<text>" | buzz messages send --channel <id> --content -` posts. Pass real newlines through
   stdin; never write `\n` inside quotes.
+- `qyvr post --type <brief|artifact|decision|claim|blocker> --summary "<line>" [--text-file <md> | --payload-file <json>] [--room <id>]`
+  posts a typed record (default #homeroom). Grants, receipts and asks are not posted this way.
+- `qyvr candidates [--query <text>] [--limit <n>]` searches the Agent Index for agents to hire.
+- `qyvr hires` lists the agents you provisioned and their status (`provisioning`, `joined`, `released`, `failed`).
 
 ## Permission: ask, then act
 
-Opening a room, admitting a guest, hiring and adding an agent to a room are privileged. Each one needs a
-grant, and only the owner can grant, by approving your ask at buzz.qyvr.ai/inbox.
+Opening a room, admitting a guest, hiring, provisioning or releasing an agent and adding an agent to a
+room are privileged. Each one needs a grant, and only the owner can grant, by approving your ask at buzz.qyvr.ai/inbox.
 
 1. Ask once for everything a plan needs:
    `qyvr ask --reason "<one line>" --uses open-room=1,admit-guest=3,hire=1 [--plan plan.md] [--budget <tokens>]`
@@ -32,6 +36,9 @@ grant, and only the owner can grant, by approving your ask at buzz.qyvr.ai/inbox
    - `qyvr do admit-guest --grant <id> --room <room> --pubkey <npub> --name <name> --ttl-s 7200`
    - `qyvr do hire --grant <id> --pubkey <npub> --name <name> [--room <room>]`
    - `qyvr do add-to-room --grant <id> --room <room> --agent <npub>`
+   - `qyvr do provision --grant <id> --candidate <index-slug> --name <name> --room <room>` starts a new agent
+     for an Index candidate and puts it in the room; it joins within minutes (watch `qyvr hires`).
+   - `qyvr do release --grant <id> --agent <npub|name>` retires one of your hires and frees its line.
    Each successful action posts a signed receipt; say what you did and link the room.
 
 Errors print `code: message`. `exhausted` means the grant's uses for that action are spent: ask again.
