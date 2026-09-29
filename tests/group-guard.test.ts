@@ -55,3 +55,30 @@ test("admitFor filters only group chats on the chat account", () => {
   assert.equal(admit(group(4), from("member", "hello")), false);
   assert.equal(admitFor("email", tony())(group(4), from("member", "hello")), true, "email is never filtered");
 });
+
+// Plow shows another Plow line in a group as a member with that line's number, not as an agent (rehearsal,
+// 2026-09-29): the guard must recognise teammates by number.
+const TEAM = ["+16503156536", "+16503156415", "+16503156604"];
+const teamGroup = { uid: "t", participants: [
+  { type: "agent", relationship: "self", line: { uid: "ln_x" } },
+  { type: "member", uid: "kyle", role: "owner", provider_key: "+15550001111" },
+  { type: "member", uid: "tony", role: "member", provider_key: "+16503156536" },
+  { type: "member", uid: "bruce", role: "member", provider_key: "(650) 315-6415" },
+] } as unknown as Chat;
+const by = (uid: string, body: string) => ({ sender: { type: "member", uid }, body }) as unknown as Message;
+
+test("a teammate's line counts as an agent even when Plow lists it as a member", () => {
+  const admit = admitFor("chat", nick(), TEAM);
+  assert.equal(admit(teamGroup, by("tony", "")), false, "a teammate's contact card");
+  assert.equal(admit(teamGroup, by("tony", "Menu spec is ready.")), false, "an unnamed deliverable");
+  assert.equal(admit(teamGroup, by("kyle", "sounds good")), true, "the owner still wakes Nick");
+  assert.equal(admit(teamGroup, by("bruce", "Nick, the research is in.")), true, "numbers match in any format");
+});
+
+test("teammates who name each other stop at the cap until a person speaks", () => {
+  const admit = admitFor("chat", nick(), TEAM);
+  for (let i = 0; i < AGENT_TURN_CAP; i++) assert.equal(admit(teamGroup, by("tony", "Nick, thoughts?")), true);
+  assert.equal(admit(teamGroup, by("bruce", "Nick, agreed?")), false);
+  admit(teamGroup, by("kyle", "keep going"));
+  assert.equal(admit(teamGroup, by("bruce", "Nick, agreed?")), true);
+});

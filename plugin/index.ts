@@ -148,7 +148,7 @@ const plugin: ChannelPlugin<Account> = {
       const log = (text: string) => ctx.log?.info(text);
       const guard = new GroupGuard(process.env.PLOW_GROUP_REPLY === "named" ? "named" : "all",
         nameWords([process.env.AGENT_NAME, ctx.cfg.agents?.entries?.main?.identity?.name]));
-      await listen(ctx.account, ctx.abortSignal, log, (chat, message, firstContact, history) => receive(ctx.account, ctx.cfg, chat, message, firstContact, history, log), admitFor(ctx.account.accountId, guard));
+      await listen(ctx.account, ctx.abortSignal, log, (chat, message, firstContact, history) => receive(ctx.account, ctx.cfg, chat, message, firstContact, history, log), admitFor(ctx.account.accountId, guard, (process.env.PLOW_TEAM_NUMBERS ?? "").split(",")));
     },
   },
   outbound: {

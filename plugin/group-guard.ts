@@ -1,7 +1,7 @@
 // Decides whether a group message starts a turn, so agents sharing a Plow group text cannot reply to each other
 // without end: another agent's message wakes this agent only when it names it, at most AGENT_TURN_CAP times per chat
 // between a person's messages, and a bench agent ("named" mode) wakes for people only when named, under an hourly cap.
-import type { Chat, Message } from "./transport.ts";
+import type { Chat, Member, Message } from "./transport.ts";
 
 export type GroupMode = "all" | "named";
 export const AGENT_TURN_CAP = 4;
@@ -42,7 +42,21 @@ export class GroupGuard {
   }
 }
 
-export function admitFor(accountId: string, guard: GroupGuard) {
-  return (chat: Chat, message: Message) =>
-    accountId !== "chat" || chat.participants.length <= 2 || guard.admit(chat.uid, message.sender.type, message.body ?? "");
+const digits = (phone: string | undefined) => (phone ?? "").replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+
+/**
+ * Plow lists another Plow line in a group as a member with that line's number, not as an agent, so teammates are
+ * recognised by number: `team` is the team's line numbers (PLOW_TEAM_NUMBERS), in any format.
+ */
+export function admitFor(accountId: string, guard: GroupGuard, team: string[] = []) {
+  const teammates = new Set(team.map(digits).filter(Boolean));
+  return (chat: Chat, message: Message) => {
+    if (accountId !== "chat" || chat.participants.length <= 2) return true;
+    const sender = message.sender;
+    const number = sender.type === "member"
+      ? sender.provider_key ?? chat.participants.find((p): p is Member => p.type === "member" && p.uid === sender.uid)?.provider_key
+      : undefined;
+    const kind = sender.type === "agent" || teammates.has(digits(number)) ? "agent" : "member";
+    return guard.admit(chat.uid, kind, message.body ?? "");
+  };
 }

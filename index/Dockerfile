@@ -10,4 +10,5 @@ RUN rm -rf /opt/plow/skills/head-of-talent /opt/plow/skills/qyvr-homeroom /opt/p
 COPY team-lead.md /opt/plow/prompt/sections/team-lead.md
 COPY skills/assemble-team /opt/plow/skills/assemble-team
 USER node
-ENV BUZZ_ATTESTATION_PROVIDER= BUZZ_RESPOND_TO= PLOW_GROUP_REPLY=all
+ENV BUZZ_ATTESTATION_PROVIDER= BUZZ_RESPOND_TO= PLOW_GROUP_REPLY=all \
+    PLOW_TEAM_NUMBERS=+16503156536,+16503156415,+16503156604
