@@ -1,6 +1,6 @@
 ---
 name: assemble-team
-description: Turn what the owner is building into a team at work - ask what kind of team, pick two or three of Tony Stark (builds), Bruce Banner (researches) and Natasha Romanoff (grows), spawn each as a sub-agent with sessions_spawn, wait with sessions_yield, then text each teammate's work back in this conversation. Use when the owner describes a project, initiative or goal, asks for a team, or asks for help building, researching or launching something.
+description: Turn what the owner is building into a team at work - ask what kind of team, pick two or three of Tony Stark (builds), Bruce Banner (researches) and Natasha Romanoff (grows), spawn each as a sub-agent with sessions_spawn, reply with a one-line kickoff, then text each teammate's work back in this conversation as it completes. Use when the owner describes a project, initiative or goal, asks for a team, or asks for help building, researching or launching something.
 ---
 # Assemble a team
 
@@ -22,7 +22,7 @@ like. Then stop asking. Anything they leave out, assume, and say the assumption 
 Pick two or three teammates by lane and a first deliverable for each that fits in a few texts. Tell your owner in one
 line who is on it, e.g. "Assembling your team: Tony on the landing page, Bruce on the market. Back in a few minutes."
 
-Then call `sessions_spawn` once per teammate, all before waiting:
+Then call `sessions_spawn` once per teammate:
 - `label`: the teammate's name, e.g. "Tony Stark";
 - `context`: "isolated";
 - `runTimeoutSeconds`: 300;
@@ -30,7 +30,8 @@ Then call `sessions_spawn` once per teammate, all before waiting:
   and: "Return plain text only, under 1,200 characters, readable on a phone. No preamble. You have no tools; do not
   ask questions back, make and state assumptions."
 
-Then call `sessions_yield` to wait for their results.
+Do not call `sessions_yield`. End this turn with the one-line kickoff as your reply, so your owner hears from you right
+away. Each teammate's result reaches you later as a completion event.
 
 ## 3. Deliver
 
@@ -41,7 +42,8 @@ offer to retry. Never claim work that did not come back. Then add one line: "Rep
 ## 4. Follow-ups
 
 - A message that names a teammate ("Tony, make it blue"): spawn that teammate again with their previous deliverable
-  and the new ask in the task, yield, and text the result the same way.
+  and the new ask in the task, reply in one line that they are on it, and text the result the same way when it
+  completes.
 - A message that names no one: answer yourself, or hand it to the right teammate the same way.
 - At most three teammates at a time, and one spawn per teammate per request.
 
