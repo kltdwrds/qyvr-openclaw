@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { readFile, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, rm } from "node:fs/promises";
 import { startAgentIndex } from "./agent-index.js";
 import { latchUrl, renderConfig } from "./config.js";
 import { identityFromApi } from "./identity.js";
 import { renderPrompt } from "./prompt.js";
+import { loadPrompt } from "./sections.js";
 import { startGateway } from "./process.js";
 
 try {
@@ -18,7 +19,7 @@ try {
   for (const name of ["BOOTSTRAP.md", "SOUL.md", "IDENTITY.md", "USER.md"]) {
     await rm(`/var/lib/plow/workspace/${name}`, { force: true });
   }
-  const prompt = await readFile("/opt/plow/prompt/AGENTS.md", "utf8");
+  const prompt = await loadPrompt("/opt/plow/prompt");
   const mac = latchUrl(identity, process.env);
   await writeFile("/var/lib/plow/workspace/AGENTS.md", await renderPrompt(prompt, mac, process.env.PLOW_AGENT_TOKEN));
   await writeFile("/var/lib/plow/openclaw.json", JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
