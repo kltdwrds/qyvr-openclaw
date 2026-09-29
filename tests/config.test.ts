@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderConfig, type Identity } from "../boot/config.ts";
+import { renderConfig, latchUrl, type Identity } from "../boot/config.ts";
 
 const identity: Identity = {
   agent: { name: "Juniper" },
@@ -121,4 +121,26 @@ test("a hire image (empty AGENT_NAME) takes its Buzz name and handle from the Pl
   assert.equal(buzz.handle, "qyvr-hire-0123456789ab", "the handle is what the hire enrolls with");
   assert.equal(buzz.about, "");
   assert.ok(!("avatar" in buzz));
+});
+
+test("AGENT_NAME names the agent over the Plow agent name", () => {
+  const config = renderConfig({ ...identity, agent: { name: "qyvr-openclaw" } }, "http://api:8000", { AGENT_NAME: "Nick Fury" });
+  assert.equal(config.agents.entries.main.identity.name, "Nick Fury");
+  assert.equal(renderConfig(identity, "http://api:8000", {}).agents.entries.main.identity.name, "Juniper");
+});
+
+test("lockdown drops every tool, the Mac bridge and the heartbeat", () => {
+  const withMac = { ...identity, mcp_url: "http://mac/mcp" };
+  const open = renderConfig(withMac, "http://api:8000", {});
+  assert.ok("mcp" in open);
+  assert.equal(latchUrl(withMac, {}), "http://mac/mcp");
+  const locked = renderConfig(withMac, "http://api:8000", { PLOW_LOCKDOWN: "1" });
+  assert.ok(!("mcp" in locked));
+  assert.deepEqual(locked.tools, { profile: "minimal", deny: ["*"] });
+  assert.equal((locked.agents.defaults as { heartbeat?: { every: string } }).heartbeat?.every, "0m");
+  assert.equal(latchUrl(withMac, { PLOW_LOCKDOWN: "1" }), null);
+});
+
+test("only the owner can run commands and directives, so a stranger in a group cannot switch the model", () => {
+  assert.deepEqual(renderConfig(identity, "http://api:8000", {}).commands.allowFrom, { "*": ["plow-owner"] });
 });

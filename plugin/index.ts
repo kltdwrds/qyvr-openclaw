@@ -4,6 +4,7 @@ import { defineChannelPluginEntry, type ChannelPlugin, type PluginRuntime, type 
 import { loadWebMedia } from "openclaw/plugin-sdk/web-media";
 import { request, listen, accepts, ownerChat, HttpError, DeliveryUnknownError, type Account, type Chat, type Message, type TurnOutcome } from "./transport.ts";
 import { createBuzzChannel, type BuzzAccount } from "./buzz.ts";
+import { GroupGuard, admitFor, nameWords } from "./group-guard.ts";
 import { joinHomeroom, loadOrCreateKey } from "./buzz-identity.ts";
 
 let runtime: PluginRuntime;
@@ -145,7 +146,10 @@ const plugin: ChannelPlugin<Account> = {
   gateway: {
     startAccount: async ctx => {
       const log = (text: string) => ctx.log?.info(text);
-      await listen(ctx.account, ctx.abortSignal, log, (chat, message, firstContact, history) => receive(ctx.account, ctx.cfg, chat, message, firstContact, history, log));
+      const guard = new GroupGuard(process.env.PLOW_GROUP_REPLY === "named" ? "named" : "all",
+        nameWords([process.env.AGENT_NAME, ctx.cfg.agents?.entries?.main?.identity?.name]),
+        nameWords((process.env.PLOW_TEAM_NAMES ?? "").split(",")));
+      await listen(ctx.account, ctx.abortSignal, log, (chat, message, firstContact, history) => receive(ctx.account, ctx.cfg, chat, message, firstContact, history, log), admitFor(ctx.account.accountId, guard, (process.env.PLOW_TEAM_NUMBERS ?? "").split(",")));
     },
   },
   outbound: {

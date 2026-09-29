@@ -27,7 +27,9 @@ function buzzChannel(env: Record<string, string | undefined>, agentName: string)
 }
 
 export function renderConfig(identity: Identity, apiBase: string, env: Record<string, string | undefined> = {}) {
-  const name = identity.agent?.name;
+  const name = env.AGENT_NAME?.trim() || identity.agent?.name;
+  // A locked-down agent (the bench) is directed by strangers: no tools, no Mac bridge, no heartbeat.
+  const lockdown = env.PLOW_LOCKDOWN === "1";
   if (typeof name !== "string" || !name.trim()) throw new Error(`Identity has no usable agent.name: ${JSON.stringify(name)}`);
   const buzz = buzzChannel(env, name);
   const email = identity.chats.flatMap(chat => chat.participants).find(p =>
@@ -46,8 +48,9 @@ export function renderConfig(identity: Identity, apiBase: string, env: Record<st
     agents: { entries: { main: { identity: { name } } }, defaults: {
       workspace: "/var/lib/plow/workspace", skipBootstrap: true,
       model: { primary: "plow/z-ai/glm-5.2", fallbacks: ["plow/anthropic/claude-sonnet-5"] }, sandbox: { mode: "off" },
+      ...(lockdown ? { heartbeat: { every: "0m" } } : {}),
     } },
-    ...(identity.mcp_url ? { mcp: { sessionIdleTtlMs: 300_000, servers: { plow: {
+    ...(identity.mcp_url && !lockdown ? { mcp: { sessionIdleTtlMs: 300_000, servers: { plow: {
       url: "http://127.0.0.1:18790/mcp", transport: "streamable-http",
       headers: { Authorization: "Bearer ${PLOW_MCP_BRIDGE_TOKEN}" },
     } } } } : {}),
@@ -61,11 +64,17 @@ export function renderConfig(identity: Identity, apiBase: string, env: Record<st
     },
     session: { dmScope: "per-account-channel-peer", groupScope: "per-group" },
     bindings: [{ agentId: "main", match: { channel: "plow", accountId: "chat", peer: { kind: "direct", id: "plow-owner" } }, session: { dmScope: "main" } }],
-    commands: { ownerAllowFrom: ["plow-owner"] },
+    // Commands and directives (/model, /think) from the owner only: in a group, strangers direct the agent.
+    commands: { ownerAllowFrom: ["plow-owner"], allowFrom: { "*": ["plow-owner"] } },
     memory: { search: { rememberAcrossConversations: false } },
     // An empty allowlist means unrestricted in OpenClaw.
     skills: { load: { extraDirs: ["/opt/plow/skills"] }, allowBundled: ["plow-no-bundled-skills"] },
     // Keep workspace and durable memory writes local instead of routing them through the Mac relay.
-    tools: { profile: "messaging", sessions: { visibility: "tree" }, alsoAllow: ["read", "write", "edit", "exec", "plow_start_thread", ...(buzz ? ["qyvr_enroll"] : [])], deny: ["ask_user"] },
+    tools: lockdown ? { profile: "minimal", deny: ["*"] } : { profile: "messaging", sessions: { visibility: "tree" }, alsoAllow: ["read", "write", "edit", "exec", "plow_start_thread", ...(buzz ? ["qyvr_enroll"] : [])], deny: ["ask_user"] },
   };
+}
+
+/** The owner's Mac (Latch), for prompt instructions and the MCP bridge; never for a locked-down agent. */
+export function latchUrl(identity: Identity, env: Record<string, string | undefined>): string | null {
+  return env.PLOW_LOCKDOWN === "1" ? null : identity.mcp_url ?? null;
 }
