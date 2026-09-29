@@ -11,4 +11,4 @@ COPY team-lead.md /opt/plow/prompt/sections/team-lead.md
 COPY skills/assemble-team /opt/plow/skills/assemble-team
 USER node
 ENV BUZZ_ATTESTATION_PROVIDER= BUZZ_RESPOND_TO= PLOW_GROUP_REPLY=all \
-    PLOW_TEAM_NUMBERS=+16503156536,+16503156415,+16503156604
+    PLOW_TEAM_NUMBERS=+16503156536,+16503156415,+16503156604 PLOW_TEAM_NAMES="Tony Stark,Bruce Banner,Natasha Romanoff"

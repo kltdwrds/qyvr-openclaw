@@ -82,3 +82,14 @@ test("teammates who name each other stop at the cap until a person speaks", () =
   admit(teamGroup, by("kyle", "keep going"));
   assert.equal(admit(teamGroup, by("bruce", "Nick, agreed?")), true);
 });
+
+test("Nick stays quiet when a person addresses only a teammate", () => {
+  const g = new GroupGuard("all", nameWords(["Nick Fury"]), nameWords(["Tony Stark", "Bruce Banner", "Natasha Romanoff"]));
+  assert.equal(g.admit("c", "member", "Tony, can you make a flyer?"), false);
+  assert.equal(g.admit("c", "member", "Nick and Tony, one more thing"), true);
+  assert.equal(g.admit("c", "member", "this looks great"), true);
+});
+
+test("a teammate's handoff gets one answer until a person speaks", () => {
+  assert.equal(AGENT_TURN_CAP, 1);
+});

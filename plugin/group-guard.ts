@@ -1,10 +1,11 @@
 // Decides whether a group message starts a turn, so agents sharing a Plow group text cannot reply to each other
 // without end: another agent's message wakes this agent only when it names it, at most AGENT_TURN_CAP times per chat
-// between a person's messages, and a bench agent ("named" mode) wakes for people only when named, under an hourly cap.
+// between a person's messages; a person addressing only a teammate does not wake it; and a bench agent ("named"
+// mode) wakes for people only when named, under an hourly cap.
 import type { Chat, Member, Message } from "./transport.ts";
 
 export type GroupMode = "all" | "named";
-export const AGENT_TURN_CAP = 4;
+export const AGENT_TURN_CAP = 1;
 export const HOURLY_CAP = 30;
 const HOUR = 3_600_000;
 const MAX_CHATS = 1000;
@@ -19,7 +20,11 @@ export class GroupGuard {
   private readonly chats = new Map<string, { agentTurns: number; turns: number[] }>();
   private readonly mode: GroupMode;
   private readonly names: string[];
-  constructor(mode: GroupMode, names: string[]) { this.mode = mode; this.names = names; }
+  private readonly teammates: string[];
+  /** `teammates` are the other agents' name words: in "all" mode a person addressing only them does not wake this agent. */
+  constructor(mode: GroupMode, names: string[], teammates: string[] = []) {
+    this.mode = mode; this.names = names; this.teammates = teammates.filter(word => !names.includes(word));
+  }
 
   admit(chat: string, sender: "member" | "agent", text: string, now = Date.now()): boolean {
     let state = this.chats.get(chat);
@@ -34,6 +39,7 @@ export class GroupGuard {
     if (sender === "member") {
       state.agentTurns = 0;
       if (this.mode === "named" && !named) return false;
+      if (!named && this.teammates.some(name => said.has(name))) return false;
     } else if (!named || state.agentTurns >= AGENT_TURN_CAP) return false;
     if (this.mode === "named" && state.turns.length >= HOURLY_CAP) return false;
     if (sender === "agent") state.agentTurns++;
