@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { GroupGuard, nameWords, admitFor, AGENT_TURN_CAP, HOURLY_CAP } from "../plugin/group-guard.ts";
+import { GroupGuard, nameWords, admitFor, AGENT_TURN_CAP, HOURLY_CAP, DIRECT_DAILY_CAP, LINE_HOURLY_CAP, ALL_HOURLY_CAP } from "../plugin/group-guard.ts";
 import type { Chat, Message } from "../plugin/transport.ts";
 
 const tony = () => new GroupGuard("named", nameWords(["Tony Stark"]));
@@ -17,10 +17,16 @@ test("a line's contact card (an agent message with no text) starts no turn", () 
   assert.equal(tony().admit("c", "agent", ""), false);
 });
 
-test("names count through punctuation and possessives, never inside other words", () => {
+test("first names count through punctuation and possessives, never inside other words", () => {
   const g = tony();
-  for (const text of ["@Tony, go", "Tony's turn", "STARK!", "over to tony."]) assert.equal(g.admit(`c-${text}`, "member", text), true, text);
-  for (const text of ["Tonya said hi", "starkly put", "anthony"]) assert.equal(g.admit(`c-${text}`, "member", text), false, text);
+  for (const text of ["@Tony, go", "Tony's turn", "TONY!", "over to tony."]) assert.equal(g.admit(`c-${text}`, "member", text), true, text);
+  for (const text of ["Tonya said hi", "anthony", "a stark contrast"]) assert.equal(g.admit(`c-${text}`, "member", text), false, text);
+});
+
+test("surnames that are ordinary words wake no one", () => {
+  const g = new GroupGuard("all", nameWords(["Nick Fury"]), nameWords(["Tony Stark", "Bruce Banner", "Natasha Romanoff"]));
+  assert.equal(g.admit("c", "member", "Can we add a banner to the landing page?"), true, "Nick answers; 'banner' is not Bruce");
+  assert.equal(new GroupGuard("named", nameWords(["Bruce Banner"])).admit("c", "agent", "Hero banner: Run Oakland on Sundays"), false);
 });
 
 test("a person's message: always a turn in all mode, only when named in named mode", () => {
@@ -92,4 +98,29 @@ test("Nick stays quiet when a person addresses only a teammate", () => {
 
 test("a teammate's handoff gets one answer until a person speaks", () => {
   assert.equal(AGENT_TURN_CAP, 1);
+});
+
+const direct = (role: string) => ({ uid: "d", participants: [
+  { type: "agent", relationship: "self", line: { uid: "ln_x" } }, { type: "member", uid: "p", role },
+] }) as unknown as Chat;
+const dm = (role: string) => ({ sender: { type: "member", uid: "p", role }, body: "hi" }) as unknown as Message;
+
+test("a stranger's direct texts stop after DIRECT_DAILY_CAP turns a day; the owner's never do", () => {
+  const admit = admitFor("chat", tony());
+  for (let i = 0; i < DIRECT_DAILY_CAP; i++) assert.equal(admit(direct("member"), dm("member")), true);
+  assert.equal(admit(direct("member"), dm("member")), false, "an auto-responder cannot loop with the bench");
+  for (let i = 0; i < DIRECT_DAILY_CAP + 3; i++) assert.equal(admit(direct("owner"), dm("owner")), true);
+});
+
+test("a bench line takes at most LINE_HOURLY_CAP turns an hour across all its chats", () => {
+  const g = tony();
+  for (let i = 0; i < LINE_HOURLY_CAP; i++) assert.equal(g.admit(`chat-${i}`, "member", "Tony?", 1_000 + i), true);
+  assert.equal(g.admit("one-more", "member", "Tony?", 2_000), false);
+  assert.equal(g.admit("one-more", "member", "Tony?", 1_000 + 3_600_001 + LINE_HOURLY_CAP), true);
+});
+
+test("Nick takes at most ALL_HOURLY_CAP turns per chat per hour", () => {
+  const g = nick();
+  for (let i = 0; i < ALL_HOURLY_CAP; i++) assert.equal(g.admit("c", "member", "hey", 1_000 + i), true);
+  assert.equal(g.admit("c", "member", "hey", 2_000), false);
 });

@@ -64,7 +64,8 @@ export function renderConfig(identity: Identity, apiBase: string, env: Record<st
     },
     session: { dmScope: "per-account-channel-peer", groupScope: "per-group" },
     bindings: [{ agentId: "main", match: { channel: "plow", accountId: "chat", peer: { kind: "direct", id: "plow-owner" } }, session: { dmScope: "main" } }],
-    commands: { ownerAllowFrom: ["plow-owner"] },
+    // Commands and directives (/model, /think) from the owner only: in a group, strangers direct the agent.
+    commands: { ownerAllowFrom: ["plow-owner"], allowFrom: { "*": ["plow-owner"] } },
     memory: { search: { rememberAcrossConversations: false } },
     // An empty allowlist means unrestricted in OpenClaw.
     skills: { load: { extraDirs: ["/opt/plow/skills"] }, allowBundled: ["plow-no-bundled-skills"] },

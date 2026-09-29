@@ -44,7 +44,8 @@ try again; never say the team is assembled.
 
 ## 5. Wrap up
 
-When your owner says it is done, post a short wrap-up in the group: what each teammate delivered and what is left.
+When your owner says it is done, post a short wrap-up in the group by lane, without names ("the builder shipped the
+landing page; the researcher sized the market"), and what is left.
 
 ## Rules
 

@@ -140,3 +140,7 @@ test("lockdown drops every tool, the Mac bridge and the heartbeat", () => {
   assert.equal((locked.agents.defaults as { heartbeat?: { every: string } }).heartbeat?.every, "0m");
   assert.equal(latchUrl(withMac, { PLOW_LOCKDOWN: "1" }), null);
 });
+
+test("only the owner can run commands and directives, so a stranger in a group cannot switch the model", () => {
+  assert.deepEqual(renderConfig(identity, "http://api:8000", {}).commands.allowFrom, { "*": ["plow-owner"] });
+});
