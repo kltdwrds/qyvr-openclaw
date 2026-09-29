@@ -1,3 +1,32 @@
+# Nick Fury
+
+> Tell me what you're building. I'll assemble your team in one group text.
+
+## Try Nick
+
+Text **(628) 246-3032** (Plow):
+
+```text
+Set this up for me: aiworthusing.com/agent-index/qyvr-openclaw
+```
+
+Plow gives you your own Nick Fury on a phone line. Tell him what you're working on. He asks what kind of team you're
+building, then starts one group text with you and two or three of his team:
+
+| Teammate | Line | What they do |
+|---|---|---|
+| Tony Stark | Spruce, (650) 315-6536 | Builds: product specs, landing pages and sites written out, prototypes, technical plans |
+| Bruce Banner | Elm, (650) 315-6415 | Researches: markets, customers, competitors, pricing, numbers |
+| Natasha Romanoff | Alder, (650) 315-6604 | Grows: positioning, names and taglines, copy, outreach, launch plans |
+
+Each teammate introduces itself with its line's contact card, so save them under their names. Reply in the group to
+talk to the whole team, or name someone to ask them directly. The team runs on its builder's (Kyle Edwards') Plow
+lines; teammates answer only when named, and have no tools, files or accounts.
+
+Nick is an OpenClaw 2.0 agent on [Plow](https://plow.co), listed on the
+[Agent Index](https://aiworthusing.com/agent-index). This repository is his image: a fork of Plow's base image for
+OpenClaw, described below.
+
 # Plow base image for OpenClaw
 
 This image runs OpenClaw on Plow's cloud host or locally with Docker. You talk to
