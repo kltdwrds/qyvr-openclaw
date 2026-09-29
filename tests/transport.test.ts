@@ -857,3 +857,31 @@ for (const listed of [false, true]) test(`empty and dot-segment chat IDs are rej
   assert.ok(!logs.some(text => text.startsWith("transport stopped")));
   assert.notEqual(controller.signal.reason?.name, "TimeoutError");
 });
+
+test("a message the group guard refuses is acked without a turn, and the next turn reloads history", async t => {
+  const { root, apiBase, abortAfter } = await websocketFixture(t);
+  const controller = abortAfter();
+  await mkdir(`${root}/plow-checkpoints`);
+  await writeFile(`${root}/plow-checkpoints/group`, "old");
+  const chat = { uid: "group", status: "active", participants: [{ type: "agent", relationship: "self", line: { uid: "line" } }] };
+  const inboundAt = (uid: string) => ({ uid, direction: "inbound", sender: { type: "member" }, body: uid });
+  const historyReads: string[] = [];
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    if (url.includes("starting_after=")) historyReads.push(url.split("starting_after=")[1]);
+    return Response.json(
+      url.endsWith("/chats") ? { data: [chat], has_more: false } : url.endsWith("/chats/group") ? chat :
+      url.endsWith("/messages?limit=50") ? { data: [inboundAt("third"), inboundAt("skipped"), inboundAt("first"), { uid: "old" }], has_more: false } :
+      url.includes("starting_after=third") ? { data: [inboundAt("skipped"), inboundAt("first")], has_more: false } :
+      url.includes("/messages?") ? { data: [], has_more: false } : { ticket: "ticket" });
+  });
+  const turns: { uid: string; history: number }[] = [];
+  await listen({ ...account, apiBase, lineUid: "line" }, controller.signal, () => {}, async (_chat, message, _first, history) => {
+    turns.push({ uid: message.uid, history: history.length });
+    if (message.uid === "third") controller.abort();
+    return "completed";
+  }, (_chat, message) => message.uid !== "skipped");
+  assert.deepEqual(turns.map(turn => turn.uid), ["first", "third"]);
+  assert.deepEqual(historyReads, ["first", "third"], "the skip makes the next admitted turn reload history");
+  assert.equal(turns[1].history, 2);
+  assert.equal(await readFile(`${root}/plow-checkpoints/group`, "utf8"), "third");
+});

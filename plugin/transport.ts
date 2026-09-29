@@ -92,7 +92,7 @@ export async function recover(account: Account, chat: string, checkpoint: string
   }
 }
 
-export async function listen(account: Account, signal: AbortSignal, log: (text: string) => void, turn: (chat: Chat, message: Message, firstContact: boolean, history: Message[]) => Promise<TurnOutcome>) {
+export async function listen(account: Account, signal: AbortSignal, log: (text: string) => void, turn: (chat: Chat, message: Message, firstContact: boolean, history: Message[]) => Promise<TurnOutcome>, admit?: (chat: Chat, message: Message) => boolean) {
   const root = process.env.OPENCLAW_STATE_DIR;
   if (!root) throw new Error("OPENCLAW_STATE_DIR is required");
   const dir = `${root}/plow-checkpoints`;
@@ -125,7 +125,12 @@ export async function listen(account: Account, signal: AbortSignal, log: (text: 
     const owner = findOwnerChat(account, [...discovered.values()]);
     const sender = message.sender;
     let notifyFailure = false;
-    if (message.direction === "inbound" && (sender.type === "member" || (account.accountId === "chat" && sender.relationship === "peer"))) {
+    if (message.direction === "inbound" && (sender.type === "member" || (account.accountId === "chat" && sender.relationship === "peer")) && admit && !admit(chat, message)) {
+      // The group guard said no: acknowledge without a turn, and let the next admitted turn reload recent history so
+      // the agent still sees what was said while it stayed quiet.
+      contextualized.delete(chat.uid);
+      log(`group guard skipped chat=${chat.uid} message=${message.uid}`);
+    } else if (message.direction === "inbound" && (sender.type === "member" || (account.accountId === "chat" && sender.relationship === "peer"))) {
       let outcome: TurnOutcome = "incomplete";
       try {
         const checkpoint = checkpoints.get(chat.uid);
