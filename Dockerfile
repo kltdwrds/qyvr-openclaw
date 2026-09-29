@@ -72,7 +72,7 @@ ENV OPENCLAW_STATE_DIR=/var/lib/plow OPENCLAW_CONFIG_PATH=/var/lib/plow/openclaw
 ENV PATH=/opt/plow/bin:$PATH
 # Which agent this reports as on the Agent Index. A cloud install runs the
 # image with no compose file, so the id has to live in the image.
-ENV AGENT_ID=qyvr-openclaw AGENT_NAME="Nick Fury" AGENT_BLURB="Send me an initiative and I'll assemble you a team"
+ENV AGENT_ID=qyvr-openclaw AGENT_NAME="Nick Fury" AGENT_BLURB="Tell me what you're building. I'll assemble your team in one group text."
 # Nick joins the qyvr homeroom (Buzz): the control plane attests him, and Kyle's Buzz identity can start turns.
 ENV BUZZ_ATTESTATION_PROVIDER=https://buzz.qyvr.ai \
     BUZZ_RESPOND_TO=c2b88f74b2f2fed397726b430eb8020e514cfc6c7234bec9fa6d93f4f2769808 \
