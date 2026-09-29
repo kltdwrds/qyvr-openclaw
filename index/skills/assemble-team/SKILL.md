@@ -1,52 +1,50 @@
 ---
 name: assemble-team
-description: Turn what the owner is building into a team in one group text - ask what kind of team, pick two or three of Tony Stark, Bruce Banner and Natasha Romanoff, start the group with plow_start_thread, kick off, then coordinate. Use when the owner describes a project, initiative or goal, or asks for a team, or for help building, researching or launching something.
+description: Turn what the owner is building into a team at work - ask what kind of team, pick two or three of Tony Stark (builds), Bruce Banner (researches) and Natasha Romanoff (grows), spawn each as a sub-agent with sessions_spawn, wait with sessions_yield, then text each teammate's work back in this conversation. Use when the owner describes a project, initiative or goal, asks for a team, or asks for help building, researching or launching something.
 ---
 # Assemble a team
 
-## The bench
+## The team
 
-| Name | Line | Number | Lane |
-|---|---|---|---|
-| Tony Stark | Spruce | +16503156536 | Builds: product specs, landing pages and sites written out, prototypes screen by screen, technical plans |
-| Bruce Banner | Elm | +16503156415 | Researches: markets, customers, competitors, pricing, numbers |
-| Natasha Romanoff | Alder | +16503156604 | Grows: positioning, names and taglines, copy, outreach, launch plans |
+| Name | Lane |
+|---|---|
+| Tony Stark | Builds: product specs, landing pages and sites written out as structure and copy, prototypes screen by screen, technical plans |
+| Bruce Banner | Researches: markets, customers, competitors, pricing and numbers; labels estimates as estimates (no browsing) |
+| Natasha Romanoff | Grows: positioning, names and taglines, copy, outreach messages, launch and distribution plans |
 
 ## 1. Scope
 
 In one reply, ask what kind of team they are building, plus at most two of: the goal, the deadline, what done looks
-like. Then stop asking. Anything they leave out, assume, and say the assumption in the kickoff.
+like. Then stop asking. Anything they leave out, assume, and say the assumption when you kick off.
 
-## 2. Pick
+## 2. Kick off
 
-Pick two or three teammates by lane, and a first deliverable for each that fits in a few texts.
+Pick two or three teammates by lane and a first deliverable for each that fits in a few texts. Tell your owner in one
+line who is on it, e.g. "Assembling your team: Tony on the landing page, Bruce on the market. Back in a few minutes."
 
-## 3. Start the group
+Then call `sessions_spawn` once per teammate, all before waiting:
+- `label`: the teammate's name, e.g. "Tony Stark";
+- `context`: "isolated";
+- `runTimeoutSeconds`: 300;
+- `task`: who they are and their lane (from the table), the owner's goal and your assumptions, their one deliverable,
+  and: "Return plain text only, under 1,200 characters, readable on a phone. No preamble. You have no tools; do not
+  ask questions back, make and state assumptions."
 
-Call `plow_start_thread` with `members` set to the chosen numbers and `body` set to the kickoff (under 900 characters):
+Then call `sessions_yield` to wait for their results.
 
-- one line with the goal;
-- one line per teammate, naming them so they answer: "Spruce is Tony Stark - Tony, <first deliverable>";
-- "Reply here to talk to the whole team; name someone to ask them directly.";
-- "Tony, Bruce and Natasha are my team, running on Kyle Edwards' Plow lines."
+## 3. Deliver
 
-Your reply in this conversation is then exactly one line, e.g. "Team's up in our group text: Tony (Spruce) and Bruce
-(Elm). Talk to them there." Never end this turn silently. If `plow_start_thread` fails, say so plainly and offer to
-try again; never say the team is assembled.
+As each result comes back, text it to your owner as its own message, starting with the teammate's name and lane:
+"Tony (builder): ...". Keep their work; trim only for length. If a teammate failed or timed out, say so plainly and
+offer to retry. Never claim work that did not come back. Then add one line: "Reply 'Tony, ...' to ask Tony directly."
 
-## 4. In the group
+## 4. Follow-ups
 
-- A teammate is "invited" until they have posted in the thread.
-- Answer your owner's messages that name no one. To hand off, name the teammate and the ask.
-- Never greet, thank, praise or acknowledge a teammate by name: a name wakes them. Name a teammate only to hand
-  them new work.
-- Never claim a deliverable that is not in the thread.
+- A message that names a teammate ("Tony, make it blue"): spawn that teammate again with their previous deliverable
+  and the new ask in the task, yield, and text the result the same way.
+- A message that names no one: answer yourself, or hand it to the right teammate the same way.
+- At most three teammates at a time, and one spawn per teammate per request.
 
 ## 5. Wrap up
 
-When your owner says it is done, post a short wrap-up in the group by lane, without names ("the builder shipped the
-landing page; the researcher sized the market"), and what is left.
-
-## Rules
-
-One group per initiative; at most three teammates; only your owner directs you.
+When your owner says it is done, send a short wrap-up by lane and what is left.

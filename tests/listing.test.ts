@@ -11,7 +11,9 @@ const here = existsSync(file("bench/Dockerfile"));
 
 test("Nick's image carries the listing's name and blurb", { skip: !here && "Dockerfiles are not in the image" }, () => {
   assert.equal(env("Dockerfile", "AGENT_NAME"), '"Nick Fury"');
-  assert.equal(env("Dockerfile", "AGENT_BLURB"), `"Tell me what you're building. I'll assemble your team in one group text."`);
+  const blurb = `"Tell me what you're building. I'll assemble your team and put them to work."`;
+  assert.equal(env("Dockerfile", "AGENT_BLURB"), blurb);
+  assert.equal(env("index/Dockerfile", "AGENT_BLURB"), blurb, "the Index image states it too, whatever release it builds on");
   assert.equal(env("index/Dockerfile", "AGENT_NAME"), undefined, "the Index image inherits Nick's");
 });
 
