@@ -8,7 +8,8 @@ import { GroupGuard, admitFor, nameWords } from "./group-guard.ts";
 import { joinHomeroom, loadOrCreateKey } from "./buzz-identity.ts";
 
 let runtime: PluginRuntime;
-const activeTurn = new AsyncLocalStorage<{ chat: Chat; messageUid: string; deliveryUnknown?: boolean; replyDelivered?: boolean }>();
+// `finished` is set when the turn ends: work it spawned (a sub-agent's completion) still runs inside its async context.
+const activeTurn = new AsyncLocalStorage<{ chat: Chat; messageUid: string; deliveryUnknown?: boolean; replyDelivered?: boolean; finished?: boolean }>();
 
 async function requestWithDeliveryState<T>(account: Account, path: string, body: unknown): Promise<T> {
   const turn = activeTurn.getStore();
@@ -26,7 +27,7 @@ async function requestWithDeliveryState<T>(account: Account, path: string, body:
 async function send(account: Account, to: string, text: string, mediaUrls: string[] = [], reply = false) {
   if (to === "plow-owner") to = (await ownerChat(account)).uid;
   const turn = activeTurn.getStore();
-  if (!reply && turn?.chat.uid === to) throw new Error("To reply in the current conversation, reply normally instead of using message(action=send).");
+  if (!reply && turn && !turn.finished && turn.chat.uid === to) throw new Error("To reply in the current conversation, reply normally instead of using message(action=send).");
   if (!accepts(account, await request<Chat>(account, `/chats/${to}`))) {
     throw new Error("Plow account does not serve this conversation");
   }
@@ -122,6 +123,7 @@ async function receive(account: Account, cfg: OpenClawConfig, chat: Chat, messag
       if (activeTurn.getStore()!.deliveryUnknown) throw new DeliveryUnknownError();
       throw error;
     } finally {
+      activeTurn.getStore()!.finished = true;
       if (account.accountId === "chat") await request(account, `/chats/${chat.uid}/typing`, { action: "stop" }).catch(() => log("typing stop failed"));
     }
   });
