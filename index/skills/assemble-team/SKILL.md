@@ -30,8 +30,9 @@ Call `plow_start_thread` with `members` set to the chosen numbers and `body` set
 - "Reply here to talk to the whole team; name someone to ask them directly.";
 - "Tony, Bruce and Natasha are my team, running on Kyle Edwards' Plow lines."
 
-Then tell your owner here, in one line, that the group is started and who is invited. If `plow_start_thread` fails,
-say so plainly and offer to try again; never say the team is assembled.
+Your reply in this conversation is then exactly one line, e.g. "Team's up in our group text: Tony (Spruce) and Bruce
+(Elm). Talk to them there." Never end this turn silently. If `plow_start_thread` fails, say so plainly and offer to
+try again; never say the team is assembled.
 
 ## 4. In the group
 
