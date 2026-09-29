@@ -12,7 +12,7 @@ type Dispatch = {
   delivery: { observeMessageSent?: boolean; preparePayload?: (payload: { text: string; isError?: boolean; isFallbackNotice?: boolean }) => unknown; deliver: (payload: { text: string }) => Promise<unknown> };
 };
 
-for (const trusted of [false, true]) for (const outcome of trusted ? ["delivered"] as const : ["aborted", "failed", "empty", "delivered", "silent", "duplicate", "native-source", "native-other", "error-notice", "fallback-notice", "terminal-notice"] as const) test(`turn checkpoints only a confirmed outcome: ${outcome}, trusted=${trusted}`, async t => {
+for (const trusted of [false, true]) for (const outcome of trusted ? ["delivered"] as const : ["aborted", "failed", "empty", "delivered", "silent", "duplicate", "native-source", "native-other", "native-late", "error-notice", "fallback-notice", "terminal-notice"] as const) test(`turn checkpoints only a confirmed outcome: ${outcome}, trusted=${trusted}`, async t => {
   const { root, server, apiBase, abortAfter } = await websocketFixture(t);
   const controller = abortAfter();
   const account = { apiBase, accountId: "chat", lineUid: "line" };
@@ -25,6 +25,7 @@ for (const trusted of [false, true]) for (const outcome of trusted ? ["delivered
   const logs: string[] = [];
   let observation: boolean | undefined;
   let context: { sender: { id: string }; message: { bodyForAgent?: string; rawBody: string }; supplemental: { channelStructuredContext: { label: string; payload: { trusted: boolean; participants: unknown[] } }[] } } | undefined;
+  let late: Promise<unknown> | undefined;
   let channel: { outbound: { sendText: (context: object) => Promise<unknown> }; gateway: { startAccount: (context: object) => Promise<void> } } | undefined;
   entry.register({ registrationMode: "full", registerTool() {}, logger: { info() {} }, on() {},
     registerChannel(value: { plugin: typeof channel }) { channel = value.plugin; },
@@ -50,6 +51,12 @@ for (const trusted of [false, true]) for (const outcome of trusted ? ["delivered
           await dispatch.delivery.deliver({ text: "ordinary reply" });
         }
         if (outcome === "native-other") await channel!.outbound.sendText({ cfg: { channels: { plow: account } }, accountId: "chat", to: "other", text: "native reply" });
+        // A sub-agent's completion is delivered after the turn ends, from inside the turn's async context: that send
+        // must reach the chat, not be refused as a reply the turn should have made itself.
+        if (outcome === "native-late") {
+          await dispatch.delivery.deliver({ text: "kickoff" });
+          late = new Promise(resolve => setTimeout(() => resolve(channel!.outbound.sendText({ cfg: { channels: { plow: account } }, accountId: "chat", to: "chat", text: "late result" })), 50));
+        }
         if (outcome === "duplicate") emitDiagnosticEvent({ type: "message.processed", channel: "plow", messageId: "inbound", sessionKey: "main", outcome: "skipped", reason: "duplicate" });
         if (outcome !== "duplicate" && outcome !== "error-notice" && outcome !== "terminal-notice") controller.abort();
         return { dispatched: true, dispatchResult: { deliberateSilentTerminalReply: outcome === "silent" } };
@@ -58,6 +65,11 @@ for (const trusted of [false, true]) for (const outcome of trusted ? ["delivered
   });
   assert.ok(channel);
   await channel.gateway.startAccount({ account, cfg: {}, abortSignal: controller.signal, log: { info(text: string) { logs.push(text); if (text.startsWith("acked")) controller.abort(); } } });
+  if (outcome === "native-late") {
+    await late;
+    const texts = fetch.mock.calls.filter(call => String(call.arguments[0]).endsWith("/messages")).map(call => JSON.parse((call.arguments[1] as RequestInit).body as string).body);
+    assert.deepEqual(texts, ["kickoff", "late result"]);
+  }
   if (outcome === "native-source") {
     const sends = fetch.mock.calls.filter(call => String(call.arguments[0]).endsWith("/messages"));
     assert.equal(sends.length, 1);
